@@ -6,3 +6,4 @@ drf-yasg==1.21.7
 psycopg2-binary==2.9.9
 whitenoise[brotli]==6.7.0
 gunicorn==22.0.0
+setuptools==75.6.0
