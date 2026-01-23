@@ -35,6 +35,12 @@ class IdentityRoleLinkInline(admin.TabularInline):
     readonly_fields = ("created_at",)
 
 
+@admin.register(RbacRoleDef)
+class RbacRoleDefAdmin(admin.ModelAdmin):
+    list_display = ("code", "label", "is_active", "is_system")
+    search_fields = ("code", "label")
+
+
 @admin.register(CoreIdentity)
 class CoreIdentityAdmin(admin.ModelAdmin):
     list_display = ("email", "phone", "first_name", "last_name", "is_active")
