@@ -5,7 +5,7 @@ services:
     repo: https://github.com/tonuser/iuec-erp
     branch: main
     dockerfilePath: ./backend/Dockerfile
-    healthCheckPath: /admin/
+    healthCheckPath: /health/
     envVars:
       - key: DATABASE_URL
         fromDatabase:
