@@ -1,0 +1,31 @@
+services:
+  - type: web
+    name: iuec-backend
+    env: docker
+    repo: https://github.com/tonuser/iuec-erp
+    branch: main
+    dockerfilePath: ./backend/Dockerfile
+    healthCheckPath: /admin/
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: iuec-db
+          property: connectionString
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DEBUG
+        value: "false"
+      - key: ALLOWED_HOSTS
+        value: iuec-erp.onrender.com,localhost
+
+  - type: static
+    name: iuec-frontend
+    repo: https://github.com/tonuser/iuec-erp
+    branch: main
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: build
+
+  - type: postgres
+    name: iuec-db
+    plan: free

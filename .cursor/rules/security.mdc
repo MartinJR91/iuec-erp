@@ -1,0 +1,7 @@
+# Sécurité
+
+- Se conformer à l’OWASP Top 10 (validation, auth, access control).
+- Secrets uniquement via variables d’environnement, jamais en dur.
+- Mode "Bris de Glace" pour logging renforcé en incident.
+- Chiffrement et protection des données sensibles.
+- Revue obligatoire des endpoints sensibles.

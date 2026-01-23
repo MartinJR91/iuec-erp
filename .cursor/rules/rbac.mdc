@@ -1,0 +1,7 @@
+# RBAC
+
+- Identité unique par utilisateur (UUID + email/téléphone uniques).
+- Centraliser rôles/permissions dans `backend/apps/rbac/`.
+- SoD (Segregation of Duties) via middleware dédié.
+- Journaliser chaque action sensible avec le rôle actif.
+- Configs JSON par faculté pour profils/permissions.

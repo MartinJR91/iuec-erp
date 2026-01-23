@@ -1,0 +1,30 @@
+# Documentation
+
+- Django : https://docs.djangoproject.com/en/stable/ (models, views, auth, rest framework)
+- Python : https://docs.python.org/3/ (type hints, best practices)
+- React : https://react.dev/reference (components, hooks, context)
+- TypeScript : https://www.typescriptlang.org/docs/ (si utilisé)
+- PostgreSQL : https://www.postgresql.org/docs/current/ (SQL schemas, constraints, JSONB)
+- Docker : https://docs.docker.com/ (compose, build, volumes)
+- Keycloak : https://www.keycloak.org/docs/latest/ (realms, roles, OIDC)
+- Autres : https://owasp.org/Top10/, https://swagger.io/docs/
+
+- Quand générant du code, référence toujours la doc pertinente (ex. "Selon Django docs section Models").
+- Simuler l’accès aux docs : si question sur une feature, résumer de mémoire ou suggérer l’URL.
+- Éviter les erreurs : vérifier la compatibilité des versions (Django 5.x, React 18+).
+- Intégrer dans les réponses : fournir des extraits si utile, sans copier verbatim.
+# Documentation
+
+- Django : https://docs.djangoproject.com/en/stable/ (models, views, auth, rest framework)
+- Python : https://docs.python.org/3/ (type hints, best practices)
+- React : https://react.dev/reference (components, hooks, context)
+- TypeScript : https://www.typescriptlang.org/docs/ (si utilisé)
+- PostgreSQL : https://www.postgresql.org/docs/current/ (SQL schemas, constraints, JSONB)
+- Docker : https://docs.docker.com/ (compose, build, volumes)
+- Keycloak : https://www.keycloak.org/docs/latest/ (realms, roles, OIDC)
+- Autres : https://owasp.org/Top10/, https://swagger.io/docs/
+
+- Quand générant du code, référence toujours la doc pertinente (ex. "Selon Django docs section Models").
+- Simuler l’accès aux docs : si question sur une feature, résumer de mémoire ou suggérer l’URL.
+- Éviter les erreurs : vérifier la compatibilité des versions (Django 5.x, React 18+).
+- Intégrer dans les réponses : fournir des extraits si utile, sans copier verbatim.

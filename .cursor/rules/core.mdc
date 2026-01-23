@@ -1,0 +1,7 @@
+# Core
+
+- Appliquer DRY, SOLID, KISS et séparation claire des responsabilités.
+- Typing strict en Python et TypeScript (mypy/tsc strict).
+- Couverture de tests >70% avant merge.
+- Linters obligatoires (ruff/black/isort + eslint/prettier).
+- Architecture modulaire avec apps Django dans `backend/apps/`.
