@@ -21,6 +21,7 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "corsheaders",
     "rest_framework",
     "drf_yasg",
     "guardian",
@@ -36,6 +37,7 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
+    "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -50,7 +52,7 @@ ROOT_URLCONF = "core.urls"
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": [],
+        "DIRS": [BASE_DIR / "templates"],
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [
@@ -73,11 +75,19 @@ DATABASES = {
         "PASSWORD": os.getenv("DB_PASSWORD", "erp_dev_password"),
         "HOST": os.getenv("DB_HOST", "127.0.0.1"),
         "PORT": os.getenv("DB_PORT", "5432"),
+        "OPTIONS": {"options": "-c client_encoding=UTF8"},
     }
 }
 
+USE_SQLITE = os.getenv("USE_SQLITE", "0") == "1"
 DATABASE_URL = os.getenv("DATABASE_URL")
-if DATABASE_URL:
+LOCAL_DB_ONLY = os.getenv("LOCAL_DB_ONLY", "0") == "1"
+if USE_SQLITE:
+    DATABASES["default"] = {
+        "ENGINE": "django.db.backends.sqlite3",
+        "NAME": BASE_DIR / "db.sqlite3",
+    }
+elif DATABASE_URL and not LOCAL_DB_ONLY:
     import dj_database_url
 
     DATABASES["default"] = dj_database_url.parse(
@@ -99,13 +109,18 @@ USE_TZ = True
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
+STATICFILES_DIRS = [BASE_DIR / "static" / "react"]
+
+CORS_ALLOWED_ORIGINS = [
+    "https://iuec-frontend.onrender.com",
+]
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
+        "rest_framework_simplejwt.authentication.JWTAuthentication",
         "rest_framework.authentication.SessionAuthentication",
-        "rest_framework.authentication.BasicAuthentication",
     ],
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
@@ -118,3 +133,10 @@ AUTHENTICATION_BACKENDS = [
 ]
 
 AUDITLOG_INCLUDE_ALL_MODELS = True
+
+KEYCLOAK_CONFIG = {
+    "server_url": os.getenv("KEYCLOAK_SERVER_URL", "https://ton-keycloak.onrender.com"),
+    "realm": os.getenv("KEYCLOAK_REALM", "iuec"),
+    "client_id": os.getenv("KEYCLOAK_CLIENT_ID", "backend-api"),
+    "audience": os.getenv("KEYCLOAK_AUDIENCE", "backend-api"),
+}
