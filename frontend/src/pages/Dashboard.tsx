@@ -1,5 +1,5 @@
 import React from "react";
-import { Grid, Paper } from "@mui/material";
+import { Grid, Paper, Typography } from "@mui/material";
 
 import { RoleDashboardHint } from "../components/RoleSwitcher";
 

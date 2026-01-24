@@ -1,0 +1,35 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>IUEC-ERP</title>
+    <link rel="icon" href="{% static 'react/favicon.ico' %}" />
+    <script>
+      async function loadReactAssets() {
+        const response = await fetch("{% static 'react/asset-manifest.json' %}");
+        if (!response.ok) return;
+        const manifest = await response.json();
+        const entrypoints = manifest.entrypoints || [];
+        entrypoints.forEach((entry) => {
+          if (entry.endsWith(".css")) {
+            const link = document.createElement("link");
+            link.rel = "stylesheet";
+            link.href = "{% static 'react/' %}" + entry;
+            document.head.appendChild(link);
+          } else if (entry.endsWith(".js")) {
+            const script = document.createElement("script");
+            script.defer = true;
+            script.src = "{% static 'react/' %}" + entry;
+            document.body.appendChild(script);
+          }
+        });
+      }
+      window.addEventListener("DOMContentLoaded", loadReactAssets);
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>

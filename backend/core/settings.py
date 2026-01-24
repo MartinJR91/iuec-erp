@@ -110,7 +110,7 @@ USE_TZ = True
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
-STATICFILES_DIRS = [BASE_DIR / "static" / "react" / "build" / "static"]
+STATICFILES_DIRS = [BASE_DIR / "static" / "react"]
 
 CORS_ALLOWED_ORIGINS = [
     "https://iuec-frontend.onrender.com",

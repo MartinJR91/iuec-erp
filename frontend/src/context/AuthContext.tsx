@@ -1,6 +1,13 @@
 import React, { createContext, useContext, useMemo, useState } from "react";
 
-export type UserRole = "admin" | "academic" | "finance" | "rh" | "student";
+export type UserRole =
+  | "RECTEUR"
+  | "DAF"
+  | "SG"
+  | "ADMIN_SI"
+  | "USER_TEACHER"
+  | "ENSEIGNANT"
+  | "OPERATOR_FINANCE";
 
 export interface AuthState {
   token: string | null;
@@ -17,7 +24,7 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export const AuthProvider: React.FC<React.PropsWithChildren> = ({ children }) => {
   const [token, setTokenState] = useState<string | null>(null);
-  const [activeRole, setActiveRoleState] = useState<UserRole>("admin");
+  const [activeRole, setActiveRoleState] = useState<UserRole>("ADMIN_SI");
 
   const setToken = (value: string | null) => {
     setTokenState(value);
@@ -29,7 +36,7 @@ export const AuthProvider: React.FC<React.PropsWithChildren> = ({ children }) =>
 
   const logout = () => {
     setTokenState(null);
-    setActiveRoleState("admin");
+    setActiveRoleState("ADMIN_SI");
   };
 
   const value = useMemo<AuthContextValue>(

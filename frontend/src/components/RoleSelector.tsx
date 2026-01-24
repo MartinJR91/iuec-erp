@@ -3,7 +3,15 @@ import { MenuItem, Select, SelectChangeEvent } from "@mui/material";
 
 import { UserRole, useAuth } from "../context/AuthContext";
 
-const roles: UserRole[] = ["admin", "academic", "finance", "rh", "student"];
+const roles: UserRole[] = [
+  "RECTEUR",
+  "DAF",
+  "SG",
+  "ADMIN_SI",
+  "USER_TEACHER",
+  "ENSEIGNANT",
+  "OPERATOR_FINANCE",
+];
 
 const RoleSelector: React.FC = () => {
   const { activeRole, setActiveRole } = useAuth();

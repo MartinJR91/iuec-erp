@@ -1,0 +1,64 @@
+{
+  "realm": "iuec",
+  "enabled": true,
+  "roles": {
+    "realm": [
+      { "name": "RECTEUR" },
+      { "name": "DAF" },
+      { "name": "SG" },
+      { "name": "ADMIN_SI" },
+      { "name": "USER_TEACHER" },
+      { "name": "ENSEIGNANT" },
+      { "name": "OPERATOR_FINANCE" }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "web-app",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": ["https://iuec-frontend.onrender.com/*"],
+      "webOrigins": ["https://iuec-frontend.onrender.com"],
+      "protocolMappers": [
+        {
+          "name": "role_active",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "config": {
+            "claim.name": "role_active",
+            "jsonType.label": "String",
+            "user.attribute": "role_active",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "userinfo.token.claim": "false"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "backend-api",
+      "enabled": true,
+      "bearerOnly": true,
+      "publicClient": false,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "protocolMappers": [
+        {
+          "name": "role_active",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "config": {
+            "claim.name": "role_active",
+            "jsonType.label": "String",
+            "user.attribute": "role_active",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "userinfo.token.claim": "false"
+          }
+        }
+      ]
+    }
+  ]
+}
