@@ -12,6 +12,8 @@ class ActiveRolePermission(BasePermission):
     allowed_roles: Optional[Iterable[str]] = None
 
     def has_permission(self, request: HttpRequest, view) -> bool:  # type: ignore[override]
+        if request.method == "OPTIONS":
+            return True
         role_active = getattr(request, "role_active", None)
         if not role_active:
             return False
@@ -24,6 +26,8 @@ class CoreIdentityPermission(ActiveRolePermission):
     """Lecture pour tout rôle actif, écriture réservée à ADMIN_SI."""
 
     def has_permission(self, request: HttpRequest, view) -> bool:  # type: ignore[override]
+        if request.method == "OPTIONS":
+            return True
         role_active = getattr(request, "role_active", None)
         if not role_active:
             return False
@@ -57,6 +61,8 @@ class SoDPermission(BasePermission):
     """Bloque certaines actions quand l'acteur est son propre bénéficiaire."""
 
     def has_permission(self, request: HttpRequest, view) -> bool:  # type: ignore[override]
+        if request.method == "OPTIONS":
+            return True
         role_active = getattr(request, "role_active", None)
         if role_active != "MANAGER_RH_PAY":
             return True

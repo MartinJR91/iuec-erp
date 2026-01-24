@@ -42,6 +42,7 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "core.middleware.KeycloakJWTMiddleware",
     "core.middleware.ActiveRoleMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
@@ -109,10 +110,25 @@ USE_TZ = True
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
-STATICFILES_DIRS = [BASE_DIR / "static" / "react"]
+STATICFILES_DIRS = [BASE_DIR / "static" / "react" / "build" / "static"]
 
 CORS_ALLOWED_ORIGINS = [
     "https://iuec-frontend.onrender.com",
+    "http://localhost:3000",
+]
+CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_METHODS = [
+    "GET",
+    "POST",
+    "PUT",
+    "PATCH",
+    "DELETE",
+    "OPTIONS",
+]
+CORS_ALLOW_HEADERS = [
+    "Authorization",
+    "Content-Type",
+    "X-Role-Active",
 ]
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
@@ -139,4 +155,16 @@ KEYCLOAK_CONFIG = {
     "realm": os.getenv("KEYCLOAK_REALM", "iuec"),
     "client_id": os.getenv("KEYCLOAK_CLIENT_ID", "backend-api"),
     "audience": os.getenv("KEYCLOAK_AUDIENCE", "backend-api"),
+    "issuer_url": os.getenv(
+        "KEYCLOAK_ISSUER_URL",
+        f"{os.getenv('KEYCLOAK_SERVER_URL', 'https://ton-keycloak.onrender.com')}/realms/{os.getenv('KEYCLOAK_REALM', 'iuec')}",
+    ),
+    "jwks_url": os.getenv(
+        "KEYCLOAK_JWKS_URL",
+        f"{os.getenv('KEYCLOAK_SERVER_URL', 'https://ton-keycloak.onrender.com')}/realms/{os.getenv('KEYCLOAK_REALM', 'iuec')}/protocol/openid-connect/certs",
+    ),
+    "jwks_cache_seconds": int(os.getenv("KEYCLOAK_JWKS_CACHE_SECONDS", "300")),
+    "jwt_algorithms": ["RS256"],
 }
+
+KEYCLOAK_JWKS_ENABLED = os.getenv("KEYCLOAK_JWKS_ENABLED", "1")

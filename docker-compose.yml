@@ -40,10 +40,12 @@ services:
     container_name: iuec_erp_keycloak
     command: start-dev
     environment:
-      KEYCLOAK_ADMIN: admin
-      KEYCLOAK_ADMIN_PASSWORD: admin
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN_USER:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-change-me}
     ports:
       - "8080:8080"
+    volumes:
+      - keycloak_data:/opt/keycloak/data
     depends_on:
       - db
     restart: unless-stopped
@@ -52,6 +54,7 @@ services:
 
 volumes:
   pgdata:
+  keycloak_data:
 
 networks:
   iuec_net:
