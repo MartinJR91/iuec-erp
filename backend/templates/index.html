@@ -8,20 +8,23 @@
     <link rel="icon" href="{% static 'react/favicon.ico' %}" />
     <script>
       async function loadReactAssets() {
-        const response = await fetch("{% static 'react/asset-manifest.json' %}");
+        const primary = "{% static 'react/asset-manifest.json' %}";
+        const fallback = "{% static 'asset-manifest.json' %}";
+        const response = await fetch(primary).then((res) => (res.ok ? res : fetch(fallback)));
         if (!response.ok) return;
         const manifest = await response.json();
         const entrypoints = manifest.entrypoints || [];
+        const base = response.url.replace("asset-manifest.json", "");
         entrypoints.forEach((entry) => {
           if (entry.endsWith(".css")) {
             const link = document.createElement("link");
             link.rel = "stylesheet";
-            link.href = "{% static 'react/' %}" + entry;
+            link.href = base + entry;
             document.head.appendChild(link);
           } else if (entry.endsWith(".js")) {
             const script = document.createElement("script");
             script.defer = true;
-            script.src = "{% static 'react/' %}" + entry;
+            script.src = base + entry;
             document.body.appendChild(script);
           }
         });
