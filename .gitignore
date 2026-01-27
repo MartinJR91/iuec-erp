@@ -39,6 +39,11 @@ build/
 .vite/
 *.tsbuildinfo
 
+# Build artifacts committed by mistake
+backend/static/react/
+backend/staticfiles/
+frontend/build/
+
 # IDE / OS
 .idea/
 .vscode/
