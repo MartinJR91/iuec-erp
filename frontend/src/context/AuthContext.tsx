@@ -1,6 +1,5 @@
 import React, { createContext, useContext, useEffect, useMemo, useState, useCallback } from "react";
 import { jwtDecode } from "jwt-decode";
-import { useNavigate } from "react-router-dom";
 import axios from "axios";
 
 import api from "../services/api";
@@ -69,7 +68,6 @@ const decodeToken = (token: string): { email: string; roles: UserRole[]; activeR
 };
 
 export const AuthProvider: React.FC<React.PropsWithChildren> = ({ children }) => {
-  const navigate = useNavigate();
   const [token, setTokenState] = useState<string | null>(() => localStorage.getItem(TOKEN_STORAGE_KEY));
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
@@ -113,16 +111,8 @@ export const AuthProvider: React.FC<React.PropsWithChildren> = ({ children }) =>
           activeRole,
         });
         localStorage.setItem(ROLE_STORAGE_KEY, activeRole);
-        // Utiliser navigate avec fallback pour la production
-        // Utiliser setTimeout pour s'assurer que le router est prêt
-        setTimeout(() => {
-          try {
-            navigate("/dashboard", { replace: true });
-          } catch (error) {
-            // Fallback si navigate échoue (production)
-            window.location.href = "/dashboard";
-          }
-        }, 0);
+        // Utiliser window.location.href pour la navigation (plus fiable en production)
+        window.location.href = "/dashboard";
       } else {
         throw new Error("Token invalide");
       }
@@ -139,17 +129,9 @@ export const AuthProvider: React.FC<React.PropsWithChildren> = ({ children }) =>
     setUser(null);
     localStorage.removeItem(TOKEN_STORAGE_KEY);
     localStorage.removeItem(ROLE_STORAGE_KEY);
-    // Utiliser navigate avec fallback pour la production
-    // Utiliser setTimeout pour s'assurer que le router est prêt
-    setTimeout(() => {
-      try {
-        navigate("/login", { replace: true });
-      } catch (error) {
-        // Fallback si navigate échoue (production)
-        window.location.href = "/login";
-      }
-    }, 0);
-  }, [navigate]);
+    // Utiliser window.location.href pour la navigation (plus fiable en production)
+    window.location.href = "/login";
+  }, []);
 
   const setActiveRole = (role: UserRole) => {
     if (user && user.roles.includes(role)) {
