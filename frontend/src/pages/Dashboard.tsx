@@ -1,27 +1,29 @@
 import React from "react";
-import { Grid, Paper, Typography } from "@mui/material";
+import { Container } from "@mui/material";
+import { useNavigate } from "react-router-dom";
 
-import { RoleDashboardHint } from "../components/RoleSwitcher";
+import { useAuth } from "../context/AuthContext";
+import DashboardContent from "../components/DashboardContent";
 
 const Dashboard: React.FC = () => {
+  const { activeRole, user } = useAuth();
+  const navigate = useNavigate();
+
+  // Rediriger vers login si non connecté
+  React.useEffect(() => {
+    if (!user || !activeRole) {
+      navigate("/login");
+    }
+  }, [user, activeRole, navigate]);
+
+  if (!user || !activeRole) {
+    return null;
+  }
+
   return (
-    <Grid container spacing={3}>
-      <Grid item xs={12} md={8}>
-        <Paper sx={{ p: 3 }}>
-          <RoleDashboardHint />
-        </Paper>
-      </Grid>
-      <Grid item xs={12} md={4}>
-        <Paper sx={{ p: 3 }}>
-          <Typography variant="h6" gutterBottom>
-            Alertes
-          </Typography>
-          <Typography variant="body2">
-            Aucun incident critique pour le moment.
-          </Typography>
-        </Paper>
-      </Grid>
-    </Grid>
+    <Container maxWidth="xl" sx={{ py: 3 }}>
+      <DashboardContent />
+    </Container>
   );
 };
 

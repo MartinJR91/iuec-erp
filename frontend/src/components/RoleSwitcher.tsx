@@ -37,12 +37,19 @@ const RoleSwitcher: React.FC = () => {
       // Mettre à jour le rôle actif dans le contexte
       setActiveRole(role);
       
-      // Optionnel : régénérer le token avec le nouveau rôle (si endpoint disponible)
+      // Régénérer le token avec le nouveau rôle actif
       if (token) {
         try {
-          await api.post("/api/auth/regenerate-token/", { role_active: role });
-        } catch {
-          // Endpoint optionnel, on continue même en cas d'erreur
+          const response = await api.post<{ token: string; access: string }>("/api/auth/regenerate-token/", { role_active: role });
+          if (response.data?.token || response.data?.access) {
+            const newToken = response.data.token || response.data.access;
+            localStorage.setItem("token", newToken);
+            // Recharger la page pour mettre à jour le token dans AuthContext
+            window.location.reload();
+          }
+        } catch (error) {
+          // Si l'endpoint échoue, on continue avec le rôle mis à jour localement
+          console.warn("Impossible de régénérer le token:", error);
         }
       }
     } finally {

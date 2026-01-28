@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
+import React, { createContext, useContext, useEffect, useMemo, useState, useCallback } from "react";
 import { jwtDecode } from "jwt-decode";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
@@ -12,7 +12,9 @@ export type UserRole =
   | "ADMIN_SI"
   | "USER_TEACHER"
   | "ENSEIGNANT"
-  | "OPERATOR_FINANCE";
+  | "OPERATOR_FINANCE"
+  | "USER_STUDENT"
+  | "VIEWER_STRATEGIC";
 
 export interface User {
   email: string;
@@ -111,7 +113,16 @@ export const AuthProvider: React.FC<React.PropsWithChildren> = ({ children }) =>
           activeRole,
         });
         localStorage.setItem(ROLE_STORAGE_KEY, activeRole);
-        navigate("/dashboard");
+        // Utiliser navigate avec fallback pour la production
+        // Utiliser setTimeout pour s'assurer que le router est prêt
+        setTimeout(() => {
+          try {
+            navigate("/dashboard", { replace: true });
+          } catch (error) {
+            // Fallback si navigate échoue (production)
+            window.location.href = "/dashboard";
+          }
+        }, 0);
       } else {
         throw new Error("Token invalide");
       }
@@ -123,13 +134,22 @@ export const AuthProvider: React.FC<React.PropsWithChildren> = ({ children }) =>
     }
   };
 
-  const logout = () => {
+  const logout = useCallback(() => {
     setTokenState(null);
     setUser(null);
     localStorage.removeItem(TOKEN_STORAGE_KEY);
     localStorage.removeItem(ROLE_STORAGE_KEY);
-    navigate("/login");
-  };
+    // Utiliser navigate avec fallback pour la production
+    // Utiliser setTimeout pour s'assurer que le router est prêt
+    setTimeout(() => {
+      try {
+        navigate("/login", { replace: true });
+      } catch (error) {
+        // Fallback si navigate échoue (production)
+        window.location.href = "/login";
+      }
+    }, 0);
+  }, [navigate]);
 
   const setActiveRole = (role: UserRole) => {
     if (user && user.roles.includes(role)) {
@@ -149,7 +169,7 @@ export const AuthProvider: React.FC<React.PropsWithChildren> = ({ children }) =>
       logout,
       setActiveRole,
     }),
-    [user, token, loading]
+    [user, token, loading, login, logout]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

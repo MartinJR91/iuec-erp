@@ -1,7 +1,15 @@
 import axios, { AxiosError } from "axios";
 
+// Utiliser l'URL locale en développement, Render en production
+const getBaseURL = (): string => {
+  if (process.env.NODE_ENV === "development" || window.location.hostname === "localhost") {
+    return "http://localhost:8000";
+  }
+  return "https://iuec-erp.onrender.com";
+};
+
 const api = axios.create({
-  baseURL: "https://iuec-erp.onrender.com",
+  baseURL: getBaseURL(),
   timeout: 15000,
 });
 

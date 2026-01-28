@@ -4,7 +4,11 @@ import os
 from pathlib import Path
 from typing import List
 
+from dotenv import load_dotenv
+
+# Charger les variables d'environnement depuis .env
 BASE_DIR = Path(__file__).resolve().parent.parent
+load_dotenv(BASE_DIR / ".env", override=True)
 
 SECRET_KEY = os.getenv("SECRET_KEY", "change-me")
 DEBUG = os.getenv("DEBUG", "0") == "1"

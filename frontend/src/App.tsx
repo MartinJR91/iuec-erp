@@ -1,5 +1,4 @@
 import React from "react";
-import { BrowserRouter } from "react-router-dom";
 import { AppBar, Box, Button, Container, Toolbar, Typography } from "@mui/material";
 
 import AppRoutes from "./AppRoutes";
@@ -10,7 +9,7 @@ const App: React.FC = () => {
   const { token, logout, user } = useAuth();
 
   return (
-    <BrowserRouter>
+    <>
       {token && (
         <AppBar position="sticky" color="primary">
           <Toolbar>
@@ -34,7 +33,7 @@ const App: React.FC = () => {
           <AppRoutes />
         </Box>
       </Container>
-    </BrowserRouter>
+    </>
   );
 };
 
