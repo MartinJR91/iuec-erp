@@ -108,22 +108,32 @@ def regenerate_token(request: Request) -> Response:
     token = auth_header.replace("Bearer ", "", 1).strip()
     
     try:
+        import jwt
         from rest_framework_simplejwt.tokens import UntypedToken
         from rest_framework_simplejwt.exceptions import InvalidToken
         
         # Valider le token
-        UntypedToken(token)
+        try:
+            UntypedToken(token)
+        except (InvalidToken, TokenError) as e:
+            return Response(
+                {"detail": f"Token invalide ou expiré: {str(e)}"},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
         
         # Décoder le token pour obtenir l'email
-        import jwt
-        from django.conf import settings
-        
-        decoded = jwt.decode(token, options={"verify_signature": False})
-        email = decoded.get("email", "")
+        try:
+            decoded = jwt.decode(token, options={"verify_signature": False})
+            email = decoded.get("email", "")
+        except (jwt.DecodeError, jwt.InvalidTokenError) as e:
+            return Response(
+                {"detail": f"Erreur de décodage du token: {str(e)}"},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
         
         if not email:
             return Response(
-                {"detail": "Token invalide."},
+                {"detail": "Token invalide: email manquant."},
                 status=status.HTTP_401_UNAUTHORIZED,
             )
         
@@ -132,7 +142,7 @@ def regenerate_token(request: Request) -> Response:
             identity = CoreIdentity.objects.get(email__iexact=email, is_active=True)
         except CoreIdentity.DoesNotExist:
             return Response(
-                {"detail": "Identité introuvable."},
+                {"detail": f"Identité introuvable pour l'email: {email}."},
                 status=status.HTTP_404_NOT_FOUND,
             )
         
@@ -140,17 +150,39 @@ def regenerate_token(request: Request) -> Response:
         role_links = IdentityRoleLink.objects.filter(identity=identity, is_active=True).select_related("role")
         user_roles = [link.role.code for link in role_links if link.role.is_active]
         
+        # Si pas de rôles, assigner ADMIN_SI par défaut
+        if not user_roles:
+            from identity.models import RbacRoleDef
+            admin_role, _ = RbacRoleDef.objects.get_or_create(
+                code="ADMIN_SI",
+                defaults={"label": "Administrateur SI", "is_system": True, "is_active": True}
+            )
+            IdentityRoleLink.objects.get_or_create(
+                identity=identity,
+                role=admin_role,
+                defaults={"is_active": True}
+            )
+            user_roles = ["ADMIN_SI"]
+        
         if role_active not in user_roles:
             return Response(
-                {"detail": f"Rôle '{role_active}' non autorisé pour cet utilisateur."},
+                {
+                    "detail": f"Rôle '{role_active}' non autorisé pour cet utilisateur.",
+                    "available_roles": user_roles,
+                },
                 status=status.HTTP_403_FORBIDDEN,
             )
         
         # Récupérer ou créer le User Django
-        user, _ = User.objects.get_or_create(
+        user, created = User.objects.get_or_create(
             username=identity.email,
             defaults={"email": identity.email, "is_active": True},
         )
+        if not created:
+            # Mettre à jour l'utilisateur existant
+            user.email = identity.email
+            user.is_active = True
+            user.save(update_fields=["email", "is_active"])
         
         # Créer un nouveau token avec le rôle actif mis à jour
         refresh = RefreshToken.for_user(user)
@@ -171,8 +203,14 @@ def regenerate_token(request: Request) -> Response:
             },
             status=status.HTTP_200_OK,
         )
-    except (InvalidToken, jwt.InvalidTokenError, Exception) as e:
+    except Exception as e:
+        # Log l'erreur pour le debugging (en production, utiliser logging)
+        import traceback
+        error_details = traceback.format_exc()
         return Response(
-            {"detail": f"Token invalide: {str(e)}"},
-            status=status.HTTP_401_UNAUTHORIZED,
+            {
+                "detail": "Erreur lors de la régénération du token.",
+                "error": str(e) if __debug__ else None,
+            },
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
