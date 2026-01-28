@@ -1,5 +1,7 @@
 import { useState, useEffect } from "react";
+import axios, { AxiosError } from "axios";
 import { UserRole } from "../context/AuthContext";
+import api from "../services/api";
 
 export interface DashboardData {
   kpis?: {
@@ -8,6 +10,10 @@ export interface DashboardData {
     sodAlerts?: number;
     attendanceRate?: number;
   };
+  graph?: Array<{
+    month: string;
+    value: number;
+  }>;
   courses?: Array<{
     code: string;
     name: string;
@@ -30,6 +36,7 @@ export interface DashboardData {
     gradedStudents?: number;
     totalStudents?: number;
   };
+  message?: string;
 }
 
 export const useDashboardData = (role: UserRole | null): { data: DashboardData | null; loading: boolean; error: string | null } => {
@@ -43,80 +50,33 @@ export const useDashboardData = (role: UserRole | null): { data: DashboardData |
       return;
     }
 
-    // Simuler un fetch API (mock data)
+    // Fetch API réelle
     const fetchData = async () => {
       setLoading(true);
       setError(null);
 
       try {
-        // Simuler un délai réseau
-        await new Promise((resolve) => setTimeout(resolve, 500));
+        // Le header X-Role-Active est déjà géré par l'interceptor axios
+        const response = await api.get<DashboardData>("/api/dashboard/", {
+          params: { role },
+        });
 
-        let mockData: DashboardData = {};
-
-        switch (role) {
-          case "RECTEUR":
-          case "DAF":
-          case "SG":
-          case "VIEWER_STRATEGIC":
-            mockData = {
-              kpis: {
-                studentsCount: 1200,
-                monthlyRevenue: "45 000 000 XAF",
-                sodAlerts: 3,
-                attendanceRate: 92,
-              },
-            };
-            break;
-
-          case "USER_TEACHER":
-          case "ENSEIGNANT":
-            mockData = {
-              courses: [
-                { code: "MATH101", name: "Mathématiques Fondamentales", studentCount: 45, nextClass: "2026-01-30 08:00" },
-                { code: "PHYS201", name: "Physique Quantique", studentCount: 32, nextClass: "2026-01-29 14:00" },
-                { code: "INFO301", name: "Algorithmes Avancés", studentCount: 28, nextClass: "2026-01-31 10:00" },
-                { code: "STAT202", name: "Statistiques", studentCount: 38, nextClass: "2026-02-01 09:00" },
-              ],
-              stats: {
-                gradedStudents: 85,
-                totalStudents: 120,
-              },
-            };
-            break;
-
-          case "USER_STUDENT":
-            mockData = {
-              grades: [
-                { ueCode: "UE_MATH", average: 14.5, status: "Validée" },
-                { ueCode: "UE_PHYS", average: 11.2, status: "Validée" },
-                { ueCode: "UE_INFO", average: 8.5, status: "Ajourné" },
-                { ueCode: "UE_STAT", average: 12.8, status: "Validée" },
-              ],
-              balance: 150000,
-            };
-            break;
-
-          case "OPERATOR_FINANCE":
-            mockData = {
-              unpaidInvoices: [
-                { student: "KONE Salif", amount: 250000, dueDate: "2026-02-15" },
-                { student: "DIAKITE Amadou", amount: 180000, dueDate: "2026-02-10" },
-                { student: "TRAORE Fatou", amount: 320000, dueDate: "2026-02-20" },
-                { student: "SANGARE Mariam", amount: 150000, dueDate: "2026-02-05" },
-                { student: "COULIBALY Ibrahim", amount: 280000, dueDate: "2026-02-12" },
-              ],
-              totalPending: 1180000,
-            };
-            break;
-
-          default:
-            mockData = {};
+        setData(response.data);
+      } catch (err: unknown) {
+        if (axios.isAxiosError(err)) {
+          const axiosError = err as AxiosError<{ detail?: string }>;
+          if (axiosError.response?.status === 401) {
+            setError("Non authentifié. Veuillez vous reconnecter.");
+          } else if (axiosError.response?.status === 403) {
+            setError("Accès refusé. Rôle non autorisé.");
+          } else if (axiosError.response?.status === 500) {
+            setError("Erreur serveur. Veuillez réessayer plus tard.");
+          } else {
+            setError(axiosError.response?.data?.detail || "Erreur lors du chargement des données");
+          }
+        } else {
+          setError(err instanceof Error ? err.message : "Erreur lors du chargement des données");
         }
-
-        setData(mockData);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Erreur lors du chargement des données");
       } finally {
         setLoading(false);
       }

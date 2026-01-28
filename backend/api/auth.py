@@ -9,6 +9,7 @@ from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from identity.models import CoreIdentity, IdentityRoleLink
+from identity.seed import DEMO_USERS_BY_EMAIL, seed_demo_users
 
 
 @api_view(["POST"])
@@ -34,10 +35,22 @@ def obtain_token(request: Request) -> Response:
     try:
         identity = CoreIdentity.objects.get(email__iexact=email, is_active=True)
     except CoreIdentity.DoesNotExist:
-        return Response(
-            {"detail": "Identifiants incorrects."},
-            status=status.HTTP_401_UNAUTHORIZED,
-        )
+        demo_user = DEMO_USERS_BY_EMAIL.get(email)
+        if demo_user:
+            if password != demo_user["password"]:
+                return Response(
+                    {"detail": "Identifiants incorrects."},
+                    status=status.HTTP_401_UNAUTHORIZED,
+                )
+            seed_demo_users()
+            identity = CoreIdentity.objects.filter(
+                email__iexact=email, is_active=True
+            ).first()
+        if not identity:
+            return Response(
+                {"detail": "Identifiants incorrects."},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
 
     # TODO: Vérifier password_hash si implémenté
     # Pour la démo, on accepte n'importe quel mot de passe si l'email existe
@@ -110,7 +123,7 @@ def regenerate_token(request: Request) -> Response:
     try:
         import jwt
         from rest_framework_simplejwt.tokens import UntypedToken
-        from rest_framework_simplejwt.exceptions import InvalidToken
+        from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
         
         # Valider le token
         try:

@@ -29,6 +29,7 @@ import {
 import { useAuth } from "../context/AuthContext";
 import { useDashboardData } from "../hooks/useDashboardData";
 import KpiCard from "./KpiCard";
+import KpiGraph from "./KpiGraph";
 
 const DashboardContent: React.FC = () => {
   const { activeRole, user } = useAuth();
@@ -105,29 +106,13 @@ const DashboardContent: React.FC = () => {
             />
           </Grid>
           <Grid item xs={12}>
-            <Card>
-              <CardContent>
-                <Typography variant="h6" gutterBottom>
-                  Évolution des inscriptions (2025-2026)
-                </Typography>
-                <Box
-                  sx={{
-                    height: 300,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    bgcolor: "grey.100",
-                    borderRadius: 1,
-                  }}
-                >
-                  <Typography variant="body2" color="text.secondary">
-                    Graphique d'évolution des inscriptions
-                    <br />
-                    (Intégration recharts à venir)
-                  </Typography>
-                </Box>
-              </CardContent>
-            </Card>
+            <KpiGraph
+              data={data?.graph || []}
+              title="Évolution des inscriptions (2025-2026)"
+              dataKey="value"
+              color="#1976d2"
+              height={300}
+            />
           </Grid>
         </Grid>
       </Box>

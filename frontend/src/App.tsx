@@ -3,6 +3,7 @@ import { AppBar, Box, Button, Container, Toolbar, Typography } from "@mui/materi
 
 import AppRoutes from "./AppRoutes";
 import RoleSwitcher from "./components/RoleSwitcher";
+import ThemeToggle from "./components/ThemeToggle";
 import { useAuth } from "./context/AuthContext";
 
 const App: React.FC = () => {
@@ -16,15 +17,18 @@ const App: React.FC = () => {
             <Typography variant="h6" sx={{ flexGrow: 1 }}>
               IUEC ERP
             </Typography>
-            {user && (
-              <Typography variant="body2" sx={{ mr: 2 }}>
-                {user.email}
-              </Typography>
-            )}
-            <RoleSwitcher />
-            <Button color="inherit" onClick={logout} sx={{ ml: 2 }}>
-              Déconnexion
-            </Button>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              {user && (
+                <Typography variant="body2" sx={{ mr: 1 }}>
+                  {user.email}
+                </Typography>
+              )}
+              <ThemeToggle />
+              <RoleSwitcher />
+              <Button color="inherit" onClick={logout} sx={{ ml: 1 }}>
+                Déconnexion
+              </Button>
+            </Box>
           </Toolbar>
         </AppBar>
       )}

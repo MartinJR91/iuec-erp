@@ -97,8 +97,16 @@ class KeycloakJWTMiddleware:
             return self._unauthorized("Token manquant.")
 
         try:
+            header = jwt.get_unverified_header(token)
+            alg = header.get("alg")
+            kid = header.get("kid")
+            config = settings.KEYCLOAK_CONFIG
+            if not kid or (alg and alg not in config.get("jwt_algorithms", ["RS256"])):
+                return self.get_response(request)
             payload = self._validate_token(token)
         except jwt.PyJWTError:
+            return self._unauthorized("Token invalide.")
+        except Exception:
             return self._unauthorized("Token invalide.")
 
         request.jwt_payload = payload
@@ -140,7 +148,10 @@ class KeycloakJWTMiddleware:
         openid = _keycloak_openid()
         if not openid:
             raise jwt.InvalidTokenError("Keycloak non disponible")
-        jwks = openid.certs()
+        try:
+            jwks = openid.certs()
+        except Exception as exc:
+            raise jwt.InvalidTokenError("JWKS indisponible") from exc
         self._jwks_cache[cache_key] = (now, jwks)
         return jwks
 
