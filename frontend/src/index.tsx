@@ -4,7 +4,6 @@ import { CssBaseline } from "@mui/material";
 
 import App from "./App";
 import { AuthProvider } from "./context/AuthContext";
-import { RoleProvider } from "./context/RoleContext";
 import { register } from "./serviceWorkerRegistration";
 
 const container = document.getElementById("root");
@@ -19,9 +18,7 @@ root.render(
   <React.StrictMode>
     <CssBaseline />
     <AuthProvider>
-      <RoleProvider>
-        <App />
-      </RoleProvider>
+      <App />
     </AuthProvider>
   </React.StrictMode>
 );

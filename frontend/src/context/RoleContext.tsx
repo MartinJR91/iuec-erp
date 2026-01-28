@@ -51,8 +51,8 @@ const loadActiveRole = (roles: UserRole[]): UserRole => {
 };
 
 export const RoleProvider: React.FC<React.PropsWithChildren> = ({ children }) => {
-  const { token, setToken, activeRole, setActiveRole: setAuthRole } = useAuth();
-  const [roles] = useState<UserRole[]>(() => loadRoles());
+  const { token, activeRole, setActiveRole: setAuthRole, roles: authRoles } = useAuth();
+  const [roles] = useState<UserRole[]>(() => authRoles.length > 0 ? authRoles : loadRoles());
 
   const regenerateToken = useCallback(
     async (role: UserRole) => {
@@ -64,14 +64,15 @@ export const RoleProvider: React.FC<React.PropsWithChildren> = ({ children }) =>
           role_active: role,
         });
         if (response.data?.token) {
-          setToken(response.data.token);
           localStorage.setItem("token", response.data.token);
+          // Recharger la page pour mettre à jour le token dans AuthContext
+          window.location.reload();
         }
       } catch {
         // Si l'endpoint n'existe pas, on conserve le token existant.
       }
     },
-    [setToken, token]
+    [token]
   );
 
   const setActiveRole = useCallback(

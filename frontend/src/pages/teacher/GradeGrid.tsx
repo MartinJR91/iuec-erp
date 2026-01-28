@@ -10,7 +10,7 @@ import {
 } from "@mui/material";
 
 import api from "../../services/api";
-import { useRole } from "../../context/RoleContext";
+import { useAuth } from "../../context/AuthContext";
 
 type GradeRow = {
   id: string;
@@ -35,7 +35,7 @@ const averageGetter = (params: ValueGetterParams<GradeRow, number>) => {
 };
 
 const GradeGrid: React.FC = () => {
-  const { activeRole } = useRole();
+  const { activeRole } = useAuth();
   const [rows, setRows] = useState<GradeRow[]>([
     {
       id: "1",

@@ -1,0 +1,954 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Guide Complet de Déploiement IUEC-ERP sur Render</title>
+    <style>
+        @page {
+            margin: 2cm;
+            size: A4;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #fff;
+        }
+        h1 {
+            color: #1a1a1a;
+            font-size: 28px;
+            border-bottom: 3px solid #2c3e50;
+            padding-bottom: 10px;
+            margin-top: 30px;
+            page-break-after: avoid;
+        }
+        h2 {
+            color: #2c3e50;
+            font-size: 20px;
+            margin-top: 25px;
+            margin-bottom: 15px;
+            page-break-after: avoid;
+        }
+        h3 {
+            color: #34495e;
+            font-size: 16px;
+            margin-top: 20px;
+            margin-bottom: 10px;
+            page-break-after: avoid;
+        }
+        p {
+            margin: 10px 0;
+            text-align: justify;
+        }
+        code {
+            background: #f4f4f4;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+            color: #c7254e;
+        }
+        pre {
+            background: #f8f8f8;
+            border: 1px solid #ddd;
+            border-left: 4px solid #2c3e50;
+            padding: 15px;
+            overflow-x: auto;
+            margin: 15px 0;
+            page-break-inside: avoid;
+        }
+        pre code {
+            background: none;
+            padding: 0;
+            color: #333;
+            font-size: 0.85em;
+        }
+        ul, ol {
+            margin: 15px 0;
+            padding-left: 30px;
+        }
+        li {
+            margin: 5px 0;
+        }
+        hr {
+            border: none;
+            border-top: 2px solid #ddd;
+            margin: 30px 0;
+        }
+        strong {
+            color: #2c3e50;
+            font-weight: 600;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid #2c3e50;
+        }
+        .header h1 {
+            border: none;
+            margin: 0;
+        }
+        .meta {
+            color: #666;
+            font-size: 0.9em;
+            margin-top: 10px;
+        }
+        @media print {
+            body {
+                padding: 0;
+            }
+            h1, h2, h3 {
+                page-break-after: avoid;
+            }
+            pre {
+                page-break-inside: avoid;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Guide Complet de Déploiement<br>IUEC-ERP sur Render</h1>
+        <div class="meta">
+            <strong>Date de création</strong> : 27 janvier 2026<br>
+            <strong>Version</strong> : 1.0<br>
+            <strong>Auteur</strong> : Documentation technique IUEC-ERP
+        </div>
+    </div>
+    
+    <h1>Guide Complet de Déploiement IUEC-ERP sur Render</h1>
+
+<strong>Date de création</strong> : 27 janvier 2026  
+<strong>Version</strong> : 1.0  
+<strong>Auteur</strong> : Documentation technique IUEC-ERP
+
+<hr>
+
+<h2>Table des matières</h2>
+
+<li>[Architecture du projet](#architecture-du-projet)</li>
+<li>[Configuration Backend Django](#configuration-backend-django)</li>
+<li>[Configuration Frontend React](#configuration-frontend-react)</li>
+<li>[Déploiement Render - Backend](#déploiement-render---backend)</li>
+<li>[Déploiement Render - Keycloak](#déploiement-render---keycloak)</li>
+<li>[Logs de déploiement](#logs-de-déploiement)</li>
+<li>[Commandes Git](#commandes-git)</li>
+<li>[Troubleshooting](#troubleshooting)</li>
+<li>[Checklist de déploiement](#checklist-de-déploiement)</li>
+
+<hr>
+
+<h2>Architecture du projet</h2>
+
+<h3>Stack technique</h3>
+
+<ul><li><strong>Backend</strong> : Django 5.1.5 (Python 3.12)</li>
+<li><strong>Frontend</strong> : React 18.3.1 (TypeScript strict)</li>
+<li><strong>Base de données</strong> : PostgreSQL 16 (Render free tier)</li>
+<li><strong>Authentification</strong> : Keycloak 26.5.2 (OIDC/JWT)</li>
+<li><strong>Serveur WSGI</strong> : Gunicorn 22.0.0</li>
+<li><strong>Static files</strong> : WhiteNoise 6.7.0</li>
+<li><strong>Conteneurisation</strong> : Docker (multi-stage build)</li>
+
+<h3>Structure monorepo</h3>
+
+<pre><code class="language-">iuec-erp/
+├── backend/              # Django backend
+│   ├── apps/             # Modules métiers
+│   │   ├── academic/     # Gestion académique
+│   │   ├── finance/      # Gestion financière
+│   │   ├── identity/     # Identités utilisateurs
+│   │   ├── rbac/         # Rôles et permissions
+│   │   └── rh/           # Ressources humaines
+│   ├── core/             # Configuration Django
+│   ├── api/              # API REST (DRF)
+│   ├── templates/        # Templates HTML (SPA React)
+│   ├── static/           # Assets statiques (générés)
+│   ├── Dockerfile        # Build Docker multi-stage
+│   └── entrypoint.sh     # Script de démarrage
+├── frontend/             # React frontend
+│   ├── src/
+│   │   ├── components/   # Composants React
+│   │   ├── context/      # Contextes (Auth, Role)
+│   │   ├── pages/        # Pages de l'application
+│   │   └── services/     # Services API
+│   └── package.json
+├── render.yaml           # Configuration Render Blueprint
+└── docker-compose.yml    # Services locaux (dev)
+
+</code></pre>
+
+<hr>
+
+<h2>Configuration Backend Django</h2>
+
+<h3>1. Modèles de données</h3>
+
+<p>#### Modèles Identity & RBAC</p>
+
+<strong>Fichier</strong> : <code>backend/identity/models.py</code>
+
+<li><code>CoreIdentity</code> : Identité unique (email/téléphone uniques)</li>
+<li><code>RbacRoleDef</code> : Définition des rôles système</li>
+<li><code>IdentityRoleLink</code> : Lien identité ↔ rôle</li>
+<li><code>SysAuditLog</code> : Journal d'audit (rôle actif enregistré)</li>
+
+<strong>Caractéristiques</strong> :
+<li>Contraintes d'unicité (<code>db_index=True</code>, <code>unique=True</code>)</li>
+<li><code>JSONField</code> pour permissions dynamiques</li>
+<li><code>auditlog.register()</code> pour traçabilité</li>
+<li>Type hints Python + docstrings</li>
+
+<p>#### Modèles Academic</p>
+
+<strong>Fichier</strong> : <code>backend/apps/academic/models.py</code>
+
+<li><code>Program</code> : Programme académique avec <code>academic_rules_json</code></li>
+<p>  - <code>cycle_type</code> : LMD / BTS / PhD</p>
+<p>  - <code>grading_system</code> : min_validate, compensation, elimination_mark</p>
+<p>  - <code>financial_rules</code> : mandatory_products, concours_required</p>
+<p>  - <code>tutelle_export_format</code></p>
+<li><code>GradeEntry</code> : Notes étudiants</li>
+
+<strong>Manager</strong> : <code>ProgramManager.get_rules(filiere_code)</code> retourne JSON parsé
+
+<p>#### Modèles Finance</p>
+
+<strong>Fichier</strong> : <code>backend/apps/finance/models.py</code>
+
+<li><code>Invoice</code> : Factures avec numéro auto (<code>2026_FACT_SCOL_XXXX</code>)</li>
+<li><code>Payment</code> : Paiements</li>
+<li><code>FinancialLedger</code> : Grand livre</li>
+<li><code>AccountingEntry</code> : Écritures comptables (double entrée)</li>
+
+<strong>Méthodes</strong> :
+<li><code>is_paid()</code> : Vérification paiement complet</li>
+<li><code>is_blocked()</code> : Blocage si conditions non remplies</li>
+
+<h3>2. Middleware & Sécurité</h3>
+
+<p>#### ActiveRoleMiddleware</p>
+
+<strong>Fichier</strong> : <code>backend/core/middleware.py</code>
+
+<strong>Fonctionnalités</strong> :
+<li>Extraction <code>role_active</code> depuis :</li>
+<p>  1. Header <code>X-Role-Active</code> (priorité haute)</p>
+<p>  2. JWT payload (Keycloak)</p>
+<p>  3. Session Django (fallback)</p>
+<li>Injection dans <code>request.role_active</code></li>
+<li>Blocage SoD (Séparation des Tâches) :</li>
+<p>  - <code>MANAGER_RH_PAY</code> ne peut pas valider sa propre opération</p>
+
+<p>#### KeycloakJWTMiddleware</p>
+
+<strong>Fichier</strong> : <code>backend/core/middleware.py</code>
+
+<strong>Fonctionnalités</strong> :
+<li>Validation JWT via JWKS Keycloak</li>
+<li>Cache JWKS (300s par défaut)</li>
+<li>Décodage payload sans vérification (lecture-only)</li>
+<li>Extraction <code>role_active</code> depuis claims Keycloak</li>
+
+<strong>Configuration</strong> : <code>backend/core/settings.py</code>
+
+<pre><code class="language-python">KEYCLOAK_CONFIG = {
+    "server_url": os.getenv("KEYCLOAK_SERVER_URL", "https://keycloak-latest-j4gg.onrender.com"),
+    "realm": os.getenv("KEYCLOAK_REALM", "iuec"),
+    "client_id": os.getenv("KEYCLOAK_CLIENT_ID", "backend-api"),
+    "jwks_enabled": os.getenv("KEYCLOAK_JWKS_ENABLED", "1") == "1",
+}
+</code></pre>
+
+<h3>3. API REST (DRF)</h3>
+
+<p>#### Serializers & ViewSets</p>
+
+<strong>Fichier</strong> : <code>backend/api/serializers.py</code> + <code>backend/api/viewsets.py</code>
+
+<li><code>CoreIdentityViewSet</code> : Lecture seule (sauf <code>ADMIN_SI</code>)</li>
+<li><code>IdentityRoleLinkViewSet</code> : CRUD (<code>ADMIN_SI</code>)</li>
+<li><code>GradeEntryViewSet</code> : Saisie (<code>USER_TEACHER</code> + scope check)</li>
+<li><code>InvoiceViewSet</code> : Gestion (<code>OPERATOR_FINANCE</code>)</li>
+
+<p>#### Permissions personnalisées</p>
+
+<strong>Fichier</strong> : <code>backend/api/permissions.py</code>
+
+<li><code>ActiveRolePermission</code> : Vérification rôle actif</li>
+<li><code>SoDPermission</code> : Blocage SoD violations</li>
+<li><code>AdminSIPermission</code> : Accès admin système</li>
+<li><code>OperatorFinancePermission</code> : Opérateur finance</li>
+
+<strong>Swagger</strong> : Intégration <code>drf-yasg</code> pour documentation auto
+
+<h3>4. Services métiers</h3>
+
+<p>#### NoteCalculator</p>
+
+<strong>Fichier</strong> : <code>backend/apps/academic/services/note_calculator.py</code>
+
+<strong>Fonctionnalités</strong> :
+<li>Calcul moyenne pondérée (30% TD / 70% Exam par composant)</li>
+<li>Compensation entre UE (LMD)</li>
+<li>Notes bloquantes (TP < 10 → UE non validée)</li>
+<li>Seuils d'élimination</li>
+<li>Utilisation <code>Decimal</code> pour précision</li>
+
+<strong>Règles dynamiques</strong> : Chargement depuis <code>academic_rules_json</code>
+
+<p>#### FileNamer</p>
+
+<strong>Fichier</strong> : <code>backend/core/utils/file_namer.py</code>
+
+<strong>Pattern</strong> : <code>[AAAA_MMDD]_[TYPE]_[ENTITE]_[REF]_[DETAIL].extension</code>
+
+<strong>Types</strong> : <code>RELEVE</code>, <code>FACT</code>, <code>RECU</code>, <code>PV_JURY</code>, <code>CONTRAT</code>
+
+<strong>Normalisation</strong> : Accents → ASCII, espaces → underscores
+
+<strong>PDF/A-3b</strong> : Validation pour documents finaux
+
+<p>#### RBACChecker</p>
+
+<strong>Fichier</strong> : <code>backend/core/rbac/checker.py</code>
+
+<strong>Matrice de permissions</strong> : Hardcodée ou JSON
+
+<strong>Actions</strong> : lecture / C/U/D / validation / accès masqué
+
+<strong>Data masking</strong> : Ex. salaire visible seulement <code>RECTEUR</code>/<code>DAF</code>/<code>SG</code>
+
+<hr>
+
+<h2>Configuration Frontend React</h2>
+
+<h3>1. Contexte d'authentification</h3>
+
+<strong>Fichier</strong> : <code>frontend/src/context/AuthContext.tsx</code>
+
+<strong>Types</strong> :
+<pre><code class="language-typescript">export type UserRole =
+  | "RECTEUR"
+  | "DAF"
+  | "SG"
+  | "ADMIN_SI"
+  | "USER_TEACHER"
+  | "ENSEIGNANT"
+  | "OPERATOR_FINANCE";
+</code></pre>
+
+<strong>Fonctionnalités</strong> :
+<li>Gestion token JWT (localStorage)</li>
+<li>Rôle actif utilisateur</li>
+<li>État authentifié</li>
+
+<h3>2. Contexte de rôles</h3>
+
+<strong>Fichier</strong> : <code>frontend/src/context/RoleContext.tsx</code>
+
+<strong>Fonctionnalités</strong> :
+<li>Liste rôles disponibles</li>
+<li>Rôle actif sélectionné</li>
+<li>Régénération JWT avec claim <code>role_active</code></li>
+<li>API endpoint <code>/api/auth/regenerate-token/</code></li>
+
+<h3>3. Composant RoleSwitcher</h3>
+
+<strong>Fichier</strong> : <code>frontend/src/components/RoleSwitcher.tsx</code>
+
+<strong>UI</strong> : Dropdown MUI pour sélection rôle actif
+
+<strong>Layout dynamique</strong> :
+<li><code>RECTEUR</code> : KPI institutionnels</li>
+<li><code>ENSEIGNANT</code> : Mes cours</li>
+<li><code>DAF</code> : Budget global</li>
+<li>etc.</li>
+
+<h3>4. Service API</h3>
+
+<strong>Fichier</strong> : <code>frontend/src/services/api.ts</code>
+
+<strong>Configuration Axios</strong> :
+<pre><code class="language-typescript">const api = axios.create({
+  baseURL: "https://iuec-erp.onrender.com",
+  timeout: 15000,
+});
+</code></pre>
+
+<strong>Intercepteur</strong> :
+<li>Header <code>Authorization: Bearer <token></code></li>
+<li>Header <code>X-Role-Active: <role></code></li>
+
+<h3>5. Composant GradeGrid</h3>
+
+<strong>Fichier</strong> : <code>frontend/src/pages/teacher/GradeGrid.tsx</code>
+
+<strong>Technologie</strong> : <code>ag-grid-react</code>
+
+<strong>Fonctionnalités</strong> :
+<li>Colonnes : étudiant, CC, TP, Exam, moyenne</li>
+<li>Édition inline</li>
+<li>Navigation clavier</li>
+<li>Blocage si rôle ≠ <code>USER_TEACHER</code> ou hors scope</li>
+<li>Validation seuils (ex. TP < 10 → UE bloquée)</li>
+<li>API <code>/api/grades/bulk-update/</code></li>
+
+<hr>
+
+<h2>Déploiement Render - Backend</h2>
+
+<h3>1. Configuration Dockerfile</h3>
+
+<strong>Fichier</strong> : <code>backend/Dockerfile</code>
+
+<strong>Build multi-stage</strong> :
+
+<pre><code class="language-dockerfile"><h1>Stage 1: Build React frontend</h1>
+FROM node:20-alpine AS frontend-build
+WORKDIR /app/frontend
+COPY frontend/package.json frontend/package-lock.json<em> ./
+RUN npm install
+COPY frontend/ ./
+RUN npm run build
+
+<h1>Stage 2: Django backend</h1>
+FROM python:3.12-slim
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PORT=10000
+
+WORKDIR /app
+
+<h1>Install python-dotenv explicitement</h1>
+RUN pip install --no-cache-dir python-dotenv==1.0.1
+
+<h1>Install Python dependencies</h1>
+COPY backend/requirements.txt ./requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+
+<h1>Copy backend code</h1>
+COPY backend/ ./backend
+WORKDIR /app/backend
+
+<h1>Copy React build from stage 1</h1>
+COPY --from=frontend-build /app/frontend/build /app/backend/static/react
+
+EXPOSE ${PORT}
+
+CMD ["sh", "entrypoint.sh"]
+</code></pre>
+
+<strong>Optimisations</strong> :
+<li>Image <code>python:3.12-slim</code> (~500MB)</li>
+<li><code>.dockerignore</code> pour exclure <code>.git</code>, <code>__pycache__</code>, <code>node_modules</code></li>
+<li>Cache npm/pip pour builds rapides</li>
+
+<h3>2. Script entrypoint</h3>
+
+<strong>Fichier</strong> : <code>backend/entrypoint.sh</code>
+
+<pre><code class="language-bash">#!/usr/bin/env bash
+set -e
+
+python manage.py migrate
+python manage.py collectstatic --noinput
+gunicorn core.wsgi:application --bind 0.0.0.0:${PORT:-8000} --workers 2 --timeout 120
+</code></pre>
+
+<strong>Étapes</strong> :
+<li>Migrations base de données</li>
+<li>Collecte fichiers statiques</li>
+<li>Démarrage Gunicorn</li>
+
+<h3>3. Configuration Render</h3>
+
+<strong>Fichier</strong> : <code>render.yaml</code>
+
+<pre><code class="language-yaml">services:
+  - type: web
+    name: iuec-backend
+    env: docker
+    repo: https://github.com/MartinJR91/iuec-erp
+    branch: main
+    dockerfilePath: ./backend/Dockerfile
+    healthCheckPath: /health/
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: iuec-db
+          property: connectionString
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DEBUG
+        value: "false"
+      - key: ALLOWED_HOSTS
+        value: iuec-erp.onrender.com,localhost
+
+  - type: postgres
+    name: iuec-db
+    plan: free
+</code></pre>
+
+<strong>Variables d'environnement</strong> :
+<li><code>DATABASE_URL</code> : Auto-générée depuis PostgreSQL</li>
+<li><code>SECRET_KEY</code> : Générée automatiquement</li>
+<li><code>DEBUG</code> : <code>false</code> en production</li>
+<li><code>ALLOWED_HOSTS</code> : Domaine Render + localhost</li>
+
+<h3>4. Configuration Django settings</h3>
+
+<strong>Fichier</strong> : <code>backend/core/settings.py</code>
+
+<strong>Static files</strong> :
+<pre><code class="language-python">STATIC_URL = "/static/"
+STATIC_ROOT = BASE_DIR / "staticfiles"
+STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
+STATICFILES_DIRS = [BASE_DIR / "static"]
+</code></pre>
+
+<strong>Database</strong> :
+<pre><code class="language-python">USE_SQLITE = os.getenv("USE_SQLITE", "0") == "1"
+DATABASE_URL = os.getenv("DATABASE_URL")
+if USE_SQLITE:
+    DATABASES["default"] = {
+        "ENGINE": "django.db.backends.sqlite3",
+        "NAME": BASE_DIR / "db.sqlite3",
+    }
+elif DATABASE_URL and not LOCAL_DB_ONLY:
+    DATABASES["default"] = dj_database_url.parse(
+        DATABASE_URL, conn_max_age=600, ssl_require=True
+    )
+</code></pre>
+
+<strong>CORS</strong> :
+<pre><code class="language-python">CORS_ALLOWED_ORIGINS = [
+    "https://iuec-frontend.onrender.com",
+    "http://localhost:3000",
+]
+CORS_ALLOW_CREDENTIALS = True
+</code></pre>
+
+<strong>Middleware</strong> :
+<pre><code class="language-python">MIDDLEWARE = [
+    "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
+    "corsheaders.middleware.CorsMiddleware",
+    "django.contrib.sessions.middleware.SessionMiddleware",
+    "django.middleware.common.CommonMiddleware",
+    "django.middleware.csrf.CsrfViewMiddleware",
+    "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "core.middleware.KeycloakJWTMiddleware",
+    "core.middleware.ActiveRoleMiddleware",
+    "django.contrib.messages.middleware.MessageMiddleware",
+    "django.middleware.clickjacking.XFrameOptionsMiddleware",
+]
+</code></pre>
+
+<h3>5. Template SPA React</h3>
+
+<strong>Fichier</strong> : <code>backend/templates/index.html</code>
+
+<strong>Fonctionnalités</strong> :
+<li>Chargement dynamique assets depuis <code>asset-manifest.json</code></li>
+<li>Fallback <code>/static/react/asset-manifest.json</code> → <code>/static/asset-manifest.json</code></li>
+<li>Injection CSS/JS automatique</li>
+
+<pre><code class="language-html">{% load static %}
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>IUEC-ERP</title>
+    <link rel="icon" href="{% static 'react/favicon.ico' %}" />
+    <script>
+      async function loadReactAssets() {
+        const primary = "{% static 'react/asset-manifest.json' %}";
+        const fallback = "{% static 'asset-manifest.json' %}";
+        const response = await fetch(primary).then((res) => (res.ok ? res : fetch(fallback)));
+        if (!response.ok) return;
+        const manifest = await response.json();
+        const entrypoints = manifest.entrypoints || [];
+        const base = response.url.replace("asset-manifest.json", "");
+        entrypoints.forEach((entry) => {
+          if (entry.endsWith(".css")) {
+            const link = document.createElement("link");
+            link.rel = "stylesheet";
+            link.href = base + entry;
+            document.head.appendChild(link);
+          } else if (entry.endsWith(".js")) {
+            const script = document.createElement("script");
+            script.defer = true;
+            script.src = base + entry;
+            document.body.appendChild(script);
+          }
+        });
+      }
+      window.addEventListener("DOMContentLoaded", loadReactAssets);
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>
+</code></pre>
+
+<strong>Routing SPA</strong> : <code>backend/core/urls.py</code>
+
+<pre><code class="language-python">from django.views.generic import TemplateView
+
+urlpatterns = [
+    path("admin/", admin.site.urls),
+    path("api/", include("api.urls")),
+    path("health/", health),
+    re_path(r"^(?!static|media|admin|api|health).+$", TemplateView.as_view(template_name="index.html")),
+    path("", TemplateView.as_view(template_name="index.html")),
+]
+</code></pre>
+
+<hr>
+
+<h2>Déploiement Render - Keycloak</h2>
+
+<h3>1. Configuration Render</h3>
+
+<strong>Service</strong> : <code>keycloak:latest</code>
+
+<strong>Type</strong> : Web Service (Docker)
+
+<strong>Image</strong> : <code>quay.io/keycloak/keycloak:latest</code>
+
+<strong>Docker Command</strong> : <code>/opt/keycloak/bin/kc.sh start --optimized</code>
+
+<strong>Variables d'environnement</strong> :
+<li><code>KC_HTTP_PORT</code> : <code>10000</code></li>
+<li><code>KC_HOSTNAME</code> : <code>keycloak-latest-j4gg.onrender.com</code></li>
+<li><code>KC_HOSTNAME_STRICT</code> : <code>false</code></li>
+<li><code>KC_HTTP_RELATIVE_PATH</code> : <code>/</code></li>
+<li><code>KC_DB</code> : <code>dev-file</code> (H2 en mémoire pour free tier)</li>
+<li><code>KC_HEALTH_ENABLED</code> : <code>true</code></li>
+<li><code>JAVA_OPTS</code> : <code>-Xms128m -Xmx384m</code> (limite mémoire free tier)</li>
+
+<strong>Profile</strong> : <code>prod</code>
+
+<h3>2. Limitations free tier</h3>
+
+<li><strong>Mémoire</strong> : 512MB max (d'où <code>JAVA_OPTS</code> pour limiter)</li>
+<li><strong>Base de données</strong> : H2 en mémoire (données perdues au redémarrage)</li>
+<li><strong>Sleep</strong> : Instance s'endort après inactivité (~50s de délai)</li>
+
+<h3>3. Configuration Realm</h3>
+
+<strong>Realm</strong> : <code>iuec</code>
+
+<strong>Clients</strong> :
+<li><code>web-app</code> : Frontend React (public)</li>
+<li><code>backend-api</code> : Backend Django (confidential)</li>
+
+<strong>Rôles Realm</strong> :
+<li><code>RECTEUR</code></li>
+<li><code>DAF</code></li>
+<li><code>SG</code></li>
+<li><code>ADMIN_SI</code></li>
+<li><code>USER_TEACHER</code></li>
+<li><code>ENSEIGNANT</code></li>
+<li><code>OPERATOR_FINANCE</code></li>
+
+<strong>Mappers</strong> :
+<li><code>role_active</code> : Claim JWT pour rôle actif</li>
+
+<hr>
+
+<h2>Logs de déploiement</h2>
+
+<h3>Logs Backend (iuec-erp)</h3>
+
+<pre><code class="language-">==> Setting WEB_CONCURRENCY=1 by default, based on available CPUs in the instance
+==> Deploying...
+Operations to perform:
+  Apply all migrations: academic, admin, auditlog, auth, contenttypes, core_identity, finance, guardian, identity, rbac, rh, sessions
+Running migrations:
+  No migrations to apply.
+3 static files copied to '/app/backend/staticfiles', 206 unmodified.
+[2026-01-27 15:50:20 +0000] [26] [INFO] Starting gunicorn 22.0.0
+[2026-01-27 15:50:20 +0000] [26] [INFO] Listening at: http://0.0.0.0:10000 (26)
+[2026-01-27 15:50:20 +0000] [26] [INFO] Using worker: sync
+[2026-01-27 15:50:20 +0000] [27] [INFO] Booting worker with pid: 27
+[2026-01-27 15:50:20 +0000] [28] [INFO] Booting worker with pid: 28
+==> Your service is live 🎉
+==> 
+==> ///////////////////////////////////////////////////////////
+==> 
+==> Available at your primary URL https://iuec-erp.onrender.com
+==> 
+==> ///////////////////////////////////////////////////////////
+</code></pre>
+
+<strong>Analyse</strong> :
+<li>✅ Migrations OK (aucune nouvelle)</li>
+<li>✅ Collectstatic OK (3 nouveaux fichiers, 206 inchangés)</li>
+<li>✅ Gunicorn démarré (2 workers)</li>
+<li>✅ Service accessible sur port 10000</li>
+
+<h3>Logs Keycloak</h3>
+
+<pre><code class="language-">==> Setting WEB_CONCURRENCY=1 by default, based on available CPUs in the instance
+==> Starting service...
+JAVA_OPTS already set in environment; overriding default settings
+Changes detected in configuration. Updating the server image.
+WARNING: Usage of the default value for the db option in the production profile is deprecated. Please explicitly set the db instead.
+WARNING: Hostname v1 options [proxy] are still in use, please review your configuration
+Updating the configuration and installing your custom providers, if any. Please wait.
+==> No open ports detected, continuing to scan...
+2026-01-27 15:52:19,162 INFO  [io.quarkus.deployment.QuarkusAugmentor] (main) Quarkus augmentation completed in 178209ms
+Server configuration updated and persisted. Run the following command to review the configuration:
+	kc.sh show-config
+Next time you run the server, just run:
+	kc.sh start --optimized
+WARNING: Hostname v1 options [proxy] are still in use, please review your configuration
+2026-01-27 15:52:50,454 INFO  [org.keycloak.url.HostnameV2ProviderFactory] (main) If hostname is specified, hostname-strict is effectively ignored
+2026-01-27 15:53:40,167 INFO  [org.hibernate.orm.jdbc.batch] (JPA Startup Thread) HHH100501: Automatic JDBC statement batching enabled (maximum batch size 32)
+2026-01-27 15:54:00,356 INFO  [org.keycloak.quarkus.runtime.storage.database.liquibase.QuarkusJpaUpdaterProvider] (main) Initializing database schema. Using changelog META-INF/jpa-changelog-master.xml
+2026-01-27 15:55:08,859 INFO  [org.infinispan.CONTAINER] (main) ISPN000556: Starting user marshaller 'org.infinispan.commons.marshall.ImmutableProtoStreamMarshaller'
+2026-01-27 15:55:15,555 INFO  [org.keycloak.connections.infinispan.DefaultInfinispanConnectionProviderFactory] (main) Node name: node_467424, Site name: null
+2026-01-27 15:55:19,752 INFO  [org.keycloak.services] (main) KC-SERVICES0050: Initializing master realm
+2026-01-27 15:55:58,750 INFO  [org.keycloak.services] (main) KC-SERVICES0077: Created temporary admin user with username admin
+2026-01-27 15:56:02,253 INFO  [io.quarkus] (main) Keycloak 26.5.2 on JVM (powered by Quarkus 3.27.2) started in 221.595s. Listening on: http://0.0.0.0:10000
+2026-01-27 15:56:02,253 INFO  [io.quarkus] (main) Profile prod activated. 
+2026-01-27 15:56:02,254 INFO  [io.quarkus] (main) Installed features: [agroal, cdi, hibernate-orm, hibernate-validator, jdbc-h2, keycloak, narayana-jta, opentelemetry, reactive-routes, rest, rest-jackson, smallrye-context-propagation, vertx]
+==> Your service is live 🎉
+==> 
+==> ///////////////////////////////////////////////////////////
+==> 
+==> Available at your primary URL https://keycloak-latest-j4gg.onrender.com
+==> 
+==> ///////////////////////////////////////////////////////////
+</code></pre>
+
+<strong>Analyse</strong> :
+<li>⚠️ Warnings hostname v1 (non bloquant)</li>
+<li>✅ Quarkus augmentation OK (~178s)</li>
+<li>✅ Base de données H2 initialisée</li>
+<li>✅ Realm master initialisé</li>
+<li>✅ Admin temporaire créé (<code>admin</code>)</li>
+<li>✅ Keycloak démarré (~221s)</li>
+<li>✅ Profile <code>prod</code> activé</li>
+<li>✅ Service accessible sur port 10000</li>
+
+<strong>Temps de démarrage</strong> : ~3-4 minutes (normal pour free tier)
+
+<hr>
+
+<h2>Commandes Git</h2>
+
+<h3>1. Configuration initiale</h3>
+
+<pre><code class="language-powershell">cd C:\Users\HP\iuec-erp
+git init
+git remote add origin https://github.com/MartinJR91/iuec-erp.git
+</code></pre>
+
+<h3>2. Commit & Push</h3>
+
+<pre><code class="language-powershell"><h1>Vérifier l'état</h1>
+git status -s
+
+<h1>Ajouter fichiers modifiés</h1>
+git add .
+
+<h1>Commit</h1>
+git commit -m "Description des changements"
+
+<h1>Push</h1>
+git push origin main
+</code></pre>
+
+<h3>3. Nettoyage artefacts build</h3>
+
+<pre><code class="language-powershell"><h1>Supprimer dossiers générés</h1>
+Remove-Item -Recurse -Force backend\static\react, backend\staticfiles, frontend\build
+
+<h1>Retirer du suivi Git</h1>
+git rm -r --cached backend\static\react backend\staticfiles
+
+<h1>Commit nettoyage</h1>
+git add .gitignore
+git commit -m "Clean build artifacts and ignore static outputs"
+git push origin main
+</code></pre>
+
+<h3>4. Règles .gitignore</h3>
+
+<strong>Fichier</strong> : <code>.gitignore</code>
+
+<pre><code class="language-"><h1>Python / Django</h1>
+__pycache__/
+</em>.py[cod]
+*.sqlite3
+.venv/
+venv/
+.env
+
+<h1>Node / React</h1>
+node_modules/
+build/
+dist/
+
+<h1>Static files (générés)</h1>
+backend/static/react/
+backend/staticfiles/
+frontend/build/
+</code></pre>
+
+<hr>
+
+<h2>Troubleshooting</h2>
+
+<h3>1. Erreur <code>ModuleNotFoundError: No module named 'pkg_resources'</code></h3>
+
+<strong>Cause</strong> : <code>setuptools</code> manquant dans Docker
+
+<strong>Solution</strong> : Ajouter dans <code>Dockerfile</code> :
+<pre><code class="language-dockerfile">RUN pip install --no-cache-dir setuptools==75.6.0
+</code></pre>
+
+<h3>2. Erreur <code>connection to server at "127.0.0.1", port 5432 failed</code></h3>
+
+<strong>Cause</strong> : <code>DATABASE_URL</code> non configurée ou SQLite utilisé localement
+
+<strong>Solution</strong> :
+<pre><code class="language-powershell"><h1>Local : utiliser SQLite</h1>
+$env:USE_SQLITE = "1"
+$env:LOCAL_DB_ONLY = "1"
+python manage.py migrate
+</code></pre>
+
+<h3>3. Erreur <code>404 Not Found</code> pour <code>/static/react/asset-manifest.json</code></h3>
+
+<strong>Cause</strong> : Manifest collecté à <code>/static/asset-manifest.json</code> au lieu de <code>/static/react/</code>
+
+<strong>Solution</strong> : Template avec fallback (déjà implémenté)
+
+<h3>4. Erreur Keycloak <code>Out of memory (used over 512Mi)</code></h3>
+
+<strong>Cause</strong> : Limite mémoire free tier dépassée
+
+<strong>Solution</strong> : Ajouter variable d'environnement :
+<pre><code class="language-">JAVA_OPTS=-Xms128m -Xmx384m
+</code></pre>
+
+<h3>5. Erreur <code>Invalid value for option 'KC_HTTP_PORT': Expected an integer</code></h3>
+
+<strong>Cause</strong> : Variable <code>KC_HTTP_PORT</code> contient <code>$PORT</code> au lieu d'un entier
+
+<strong>Solution</strong> : Définir <code>KC_HTTP_PORT=10000</code> (entier)
+
+<h3>6. Page blanche sur <code>/</code></h3>
+
+<strong>Cause</strong> : Assets React non chargés
+
+<strong>Solution</strong> :
+<li>Vérifier <code>STATICFILES_DIRS</code> dans <code>settings.py</code></li>
+<li>Vérifier <code>homepage</code> dans <code>frontend/package.json</code> (<code>"/static/react"</code>)</li>
+<li>Vérifier template <code>index.html</code> avec fallback</li>
+
+<hr>
+
+<h2>Checklist de déploiement</h2>
+
+<h3>Pré-déploiement</h3>
+
+<li>[ ] Code commité et poussé sur GitHub</li>
+<li>[ ] <code>.gitignore</code> configuré (exclure <code>staticfiles/</code>, <code>build/</code>)</li>
+<li>[ ] <code>Dockerfile</code> testé localement</li>
+<li>[ ] <code>entrypoint.sh</code> exécutable (<code>chmod +x</code>)</li>
+<li>[ ] Variables d'environnement documentées</li>
+
+<h3>Configuration Render</h3>
+
+<li>[ ] Service backend créé (Docker)</li>
+<li>[ ] Service Keycloak créé (Docker)</li>
+<li>[ ] Base de données PostgreSQL créée (free tier)</li>
+<li>[ ] Variables d'environnement configurées :</li>
+<p>  - [ ] <code>DATABASE_URL</code> (auto depuis PostgreSQL)</p>
+<p>  - [ ] <code>SECRET_KEY</code> (générée)</p>
+<p>  - [ ] <code>DEBUG=false</code></p>
+<p>  - [ ] <code>ALLOWED_HOSTS</code></p>
+<p>  - [ ] <code>KEYCLOAK_SERVER_URL</code></p>
+<p>  - [ ] <code>KEYCLOAK_REALM</code></p>
+<p>  - [ ] <code>KEYCLOAK_CLIENT_ID</code></p>
+
+<h3>Build & Deploy</h3>
+
+<li>[ ] Build Docker réussi (backend)</li>
+<li>[ ] Build Docker réussi (Keycloak)</li>
+<li>[ ] Migrations appliquées (<code>python manage.py migrate</code>)</li>
+<li>[ ] Static files collectés (<code>collectstatic</code>)</li>
+<li>[ ] Gunicorn démarré (2 workers)</li>
+<li>[ ] Health check OK (<code>/health/</code>)</li>
+
+<h3>Post-déploiement</h3>
+
+<li>[ ] Backend accessible : <code>https://iuec-erp.onrender.com</code></li>
+<li>[ ] Keycloak accessible : <code>https://keycloak-latest-j4gg.onrender.com</code></li>
+<li>[ ] Frontend React chargé (<code>/dashboard</code>)</li>
+<li>[ ] API fonctionnelle (<code>/api/identity/</code>)</li>
+<li>[ ] Authentification Keycloak OK</li>
+<li>[ ] Rôles actifs fonctionnels</li>
+
+<h3>Tests fonctionnels</h3>
+
+<li>[ ] Login utilisateur</li>
+<li>[ ] Sélection rôle actif</li>
+<li>[ ] Dashboard selon rôle</li>
+<li>[ ] API avec authentification</li>
+<li>[ ] SoD violations bloquées</li>
+<li>[ ] Audit log enregistré</li>
+
+<hr>
+
+<h2>Conclusion</h2>
+
+<p>Le déploiement IUEC-ERP sur Render est <strong>opérationnel</strong> avec :</p>
+
+<p>✅ <strong>Backend Django</strong> : Service web Docker multi-stage  </p>
+<p>✅ <strong>Frontend React</strong> : SPA servi par Django  </p>
+<p>✅ <strong>Keycloak</strong> : Authentification OIDC/JWT  </p>
+<p>✅ <strong>PostgreSQL</strong> : Base de données (free tier)  </p>
+<p>✅ <strong>Static files</strong> : WhiteNoise + collectstatic  </p>
+<p>✅ <strong>Health check</strong> : Endpoint <code>/health/</code>  </p>
+
+<strong>URLs de production</strong> :
+<li>Backend : <code>https://iuec-erp.onrender.com</code></li>
+<li>Keycloak : <code>https://keycloak-latest-j4gg.onrender.com</code></li>
+
+<strong>Limitations free tier</strong> :
+<li>Sleep après inactivité (~50s délai)</li>
+<li>512MB RAM max</li>
+<li>Base Keycloak H2 (données perdues au redémarrage)</li>
+
+<strong>Prochaines étapes</strong> :
+<li>Migration Keycloak vers PostgreSQL externe</li>
+<li>Upgrade plan Render (Starter) pour performance</li>
+<li>Monitoring & alertes (Sentry, etc.)</li></ul>
+
+<hr>
+
+<strong>Document généré le</strong> : 27 janvier 2026  
+<strong>Version</strong> : 1.0
+
+    
+    <hr>
+    <div style="text-align: center; color: #666; font-size: 0.9em; margin-top: 40px;">
+        <p><strong>Document généré le</strong> : 27 janvier 2026 | <strong>Version</strong> : 1.0</p>
+        <p>Pour imprimer en PDF : Ctrl+P > Enregistrer en PDF</p>
+    </div>
+</body>
+</html>

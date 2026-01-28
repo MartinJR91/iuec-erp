@@ -12,7 +12,8 @@ import {
   Typography,
 } from "@mui/material";
 
-import { useRole } from "../context/RoleContext";
+import { useAuth, UserRole } from "../context/AuthContext";
+import api from "../services/api";
 
 const ROLE_LABELS: Record<string, string> = {
   RECTEUR: "Recteur",
@@ -25,18 +26,33 @@ const ROLE_LABELS: Record<string, string> = {
 };
 
 const RoleSwitcher: React.FC = () => {
-  const { roles, activeRole, setActiveRole } = useRole();
+  const { roles, activeRole, setActiveRole, token } = useAuth();
   const [loading, setLoading] = useState(false);
 
   const handleChange = async (event: SelectChangeEvent<string>) => {
-    const role = event.target.value as typeof activeRole;
+    const role = event.target.value as UserRole;
     setLoading(true);
-    await setActiveRole(role);
-    setLoading(false);
+    
+    try {
+      // Mettre à jour le rôle actif dans le contexte
+      setActiveRole(role);
+      
+      // Optionnel : régénérer le token avec le nouveau rôle (si endpoint disponible)
+      if (token) {
+        try {
+          await api.post("/api/auth/regenerate-token/", { role_active: role });
+        } catch {
+          // Endpoint optionnel, on continue même en cas d'erreur
+        }
+      }
+    } finally {
+      setLoading(false);
+    }
   };
 
-  if (roles.length <= 1) {
-    return <Chip label={ROLE_LABELS[activeRole] ?? activeRole} color="secondary" />;
+  if (!activeRole || roles.length <= 1) {
+    const roleToDisplay = activeRole || "ADMIN_SI";
+    return <Chip label={ROLE_LABELS[roleToDisplay] ?? roleToDisplay} color="secondary" />;
   }
 
   return (
@@ -44,9 +60,10 @@ const RoleSwitcher: React.FC = () => {
       <InputLabel id="role-switcher-label">Rôle actif</InputLabel>
       <Select
         labelId="role-switcher-label"
-        value={activeRole}
+        value={activeRole || ""}
         label="Rôle actif"
         onChange={handleChange}
+        disabled={loading}
       >
         {roles.map((role) => (
           <MenuItem key={role} value={role}>
@@ -64,7 +81,7 @@ const RoleSwitcher: React.FC = () => {
 };
 
 export const RoleDashboardHint: React.FC = () => {
-  const { activeRole } = useRole();
+  const { activeRole } = useAuth();
 
   if (activeRole === "RECTEUR") {
     return (

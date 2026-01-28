@@ -22,7 +22,7 @@ const RoleSelector: React.FC = () => {
 
   return (
     <Select
-      value={activeRole}
+      value={activeRole || ""}
       onChange={handleChange}
       size="small"
       sx={{ bgcolor: "white", borderRadius: 1, minWidth: 160 }}
