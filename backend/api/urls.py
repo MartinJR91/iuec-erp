@@ -7,6 +7,7 @@ from rest_framework import permissions
 from rest_framework.routers import DefaultRouter
 
 from .auth import obtain_token, regenerate_token
+from .views import dashboard_data
 from .viewsets import (
     CoreIdentityViewSet,
     GradeEntryViewSet,
@@ -33,6 +34,7 @@ schema_view = get_schema_view(
 urlpatterns = [
     path("token/", obtain_token, name="obtain-token"),
     path("auth/regenerate-token/", regenerate_token, name="regenerate-token"),
+    path("dashboard/", dashboard_data, name="dashboard-data"),
     path("swagger/", schema_view.with_ui("swagger", cache_timeout=0), name="swagger-ui"),
     path("redoc/", schema_view.with_ui("redoc", cache_timeout=0), name="redoc"),
     path("", include(router.urls)),
