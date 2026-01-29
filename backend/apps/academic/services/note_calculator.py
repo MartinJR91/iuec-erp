@@ -134,3 +134,71 @@ class NoteCalculator:
         if component_weights:
             return component_weights.get(item.component.upper(), Decimal("0"))
         return item.weight
+
+
+@dataclass(frozen=True)
+class EvaluationScore:
+    component: str
+    value: Decimal
+    weight: Decimal
+    max_score: Decimal
+
+
+@dataclass(frozen=True)
+class UEGradeResult:
+    average: Decimal
+    validated: bool
+
+
+class UEGradeCalculator:
+    """Calcule moyenne et statut d'une UE selon les règles JSON."""
+
+    @staticmethod
+    def calculate(
+        items: Iterable[EvaluationScore], rules: Dict[str, object]
+    ) -> UEGradeResult:
+        grading = rules.get("grading_system", {}) if isinstance(rules, dict) else {}
+        min_validate = Decimal(str(grading.get("min_validate", 10)))
+        compensation = bool(grading.get("compensation", True))
+        elimination_mark = grading.get("elimination_mark")
+        elimination_value = (
+            Decimal(str(elimination_mark)) if elimination_mark is not None else None
+        )
+        blocking_components = grading.get("blocking_components", [])
+        blocking_set = (
+            {str(item).upper() for item in blocking_components}
+            if isinstance(blocking_components, list)
+            else set()
+        )
+
+        total = Decimal("0")
+        weights = Decimal("0")
+        component_below_min = False
+        blocked = False
+
+        for item in items:
+            if item.max_score <= 0:
+                normalized = item.value
+            else:
+                normalized = (item.value / item.max_score) * Decimal("20")
+            total += normalized * item.weight
+            weights += item.weight
+
+            if not compensation and normalized < min_validate:
+                component_below_min = True
+            if elimination_value is not None:
+                if item.component.upper() in blocking_set and item.value < elimination_value:
+                    blocked = True
+
+        average = (
+            (total / weights).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            if weights > 0
+            else Decimal("0")
+        )
+        validated = average >= min_validate
+        if blocked:
+            validated = False
+        if component_below_min:
+            validated = False
+
+        return UEGradeResult(average=average, validated=validated)

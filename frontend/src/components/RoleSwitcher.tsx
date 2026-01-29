@@ -23,6 +23,8 @@ const ROLE_LABELS: Record<string, string> = {
   USER_TEACHER: "Enseignant",
   ENSEIGNANT: "Enseignant",
   OPERATOR_FINANCE: "Opérateur Finance",
+  VALIDATOR_ACAD: "Validateur Acad.",
+  DOYEN: "Doyen",
 };
 
 const RoleSwitcher: React.FC = () => {

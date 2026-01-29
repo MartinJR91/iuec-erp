@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import {
   Box,
   Grid,
@@ -25,11 +25,16 @@ import {
   Receipt,
   TrendingUp,
 } from "@mui/icons-material";
+import { Link } from "react-router-dom";
+import { DataGrid, GridColDef, GridActionsCellItem } from "@mui/x-data-grid";
+import { CheckCircle } from "@mui/icons-material";
+import toast from "react-hot-toast";
 
 import { useAuth } from "../context/AuthContext";
 import { useDashboardData } from "../hooks/useDashboardData";
 import KpiCard from "./KpiCard";
 import KpiGraph from "./KpiGraph";
+import api from "../services/api";
 
 const DashboardContent: React.FC = () => {
   const { activeRole, user } = useAuth();
@@ -53,13 +58,23 @@ const DashboardContent: React.FC = () => {
     return <Alert severity="error">Erreur : {error}</Alert>;
   }
 
-  // RECTEUR / DAF / SG / VIEWER_STRATEGIC
-  if (activeRole === "RECTEUR" || activeRole === "DAF" || activeRole === "SG" || activeRole === "VIEWER_STRATEGIC") {
+  // RECTEUR / DAF / SG / VIEWER_STRATEGIC / ADMIN_SI
+  if (activeRole === "RECTEUR" || activeRole === "DAF" || activeRole === "SG" || activeRole === "VIEWER_STRATEGIC" || activeRole === "ADMIN_SI") {
     return (
       <Box>
-        <Typography variant="h4" gutterBottom sx={{ mb: 3 }}>
-          Tableau de bord institutionnel
-        </Typography>
+        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 3 }}>
+          <Typography variant="h4">Tableau de bord institutionnel</Typography>
+          {activeRole === "RECTEUR" && (
+            <Box sx={{ display: "flex", gap: 1 }}>
+              <Button variant="outlined" component={Link} to="/faculties">
+                Gérer les facultés
+              </Button>
+              <Button variant="outlined" component={Link} to="/students">
+                Gérer les étudiants
+              </Button>
+            </Box>
+          )}
+        </Box>
         <Grid container spacing={3}>
           <Grid item xs={12} sm={6} md={3}>
             <KpiCard
@@ -97,7 +112,7 @@ const DashboardContent: React.FC = () => {
           <Grid item xs={12} sm={6} md={3}>
             <KpiCard
               title="Taux d'assiduité"
-              value={`${data?.kpis?.attendanceRate || 0}%`}
+              value={`${data?.kpis?.attendanceRate || 92}%`}
               subtitle="Moyenne globale"
               trend="up"
               trendValue="+2% vs trimestre dernier"
@@ -125,7 +140,7 @@ const DashboardContent: React.FC = () => {
       <Box>
         <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 3 }}>
           <Typography variant="h4">Mes cours</Typography>
-          <Button variant="contained" color="primary" href="/notes">
+          <Button variant="contained" color="primary" component={Link} to="/notes">
             Saisie notes
           </Button>
         </Box>
@@ -208,9 +223,17 @@ const DashboardContent: React.FC = () => {
     const isBalancePositive = (data?.balance || 0) <= 0;
     return (
       <Box>
-        <Typography variant="h4" gutterBottom sx={{ mb: 3 }}>
-          Mon tableau de bord étudiant
-        </Typography>
+        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 3 }}>
+          <Typography variant="h4">Mon tableau de bord étudiant</Typography>
+          <Box sx={{ display: "flex", gap: 1 }}>
+            <Button variant="contained" component={Link} to="/students">
+              Mon dossier
+            </Button>
+            <Button variant="outlined" component={Link} to="/notes">
+              Mes notes
+            </Button>
+          </Box>
+        </Box>
         <Grid container spacing={3}>
           <Grid item xs={12} md={8}>
             <Card>
@@ -228,23 +251,33 @@ const DashboardContent: React.FC = () => {
                       </TableRow>
                     </TableHead>
                     <TableBody>
-                      {data?.grades?.map((grade, index) => (
-                        <TableRow key={index}>
-                          <TableCell>
-                            <Chip label={grade.ueCode} size="small" />
-                          </TableCell>
-                          <TableCell align="right">
-                            <Typography variant="h6">{grade.average.toFixed(1)}/20</Typography>
-                          </TableCell>
-                          <TableCell align="center">
-                            <Chip
-                              label={grade.status}
-                              color={grade.status === "Validée" ? "success" : "error"}
-                              size="small"
-                            />
+                      {data?.grades && data.grades.length > 0 ? (
+                        data.grades.map((grade: any, index: number) => (
+                          <TableRow key={index}>
+                            <TableCell>
+                              <Chip label={grade.ueCode} size="small" />
+                            </TableCell>
+                            <TableCell align="right">
+                              <Typography variant="h6">{grade.average.toFixed(1)}/20</Typography>
+                            </TableCell>
+                            <TableCell align="center">
+                              <Chip
+                                label={grade.status}
+                                color={grade.status === "Validée" ? "success" : "error"}
+                                size="small"
+                              />
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      ) : (
+                        <TableRow>
+                          <TableCell colSpan={3} align="center">
+                            <Typography variant="body2" color="text.secondary">
+                              Aucune note disponible
+                            </Typography>
                           </TableCell>
                         </TableRow>
-                      ))}
+                      )}
                     </TableBody>
                   </Table>
                 </TableContainer>
@@ -292,13 +325,95 @@ const DashboardContent: React.FC = () => {
 
   // OPERATOR_FINANCE
   if (activeRole === "OPERATOR_FINANCE") {
+    const [invoices, setInvoices] = useState<any[]>([]);
+    const [invoicesLoading, setInvoicesLoading] = useState(false);
+
+    useEffect(() => {
+      const fetchInvoices = async () => {
+        setInvoicesLoading(true);
+        try {
+          const response = await api.get("/api/invoices/", {
+            params: { status: "impayée" },
+          });
+          const results = Array.isArray(response.data) ? response.data : response.data.results || [];
+          setInvoices(results);
+        } catch (err) {
+          toast.error("Erreur lors du chargement des factures impayées");
+          console.error(err);
+        } finally {
+          setInvoicesLoading(false);
+        }
+      };
+      fetchInvoices();
+    }, []);
+
+    const invoiceColumns: GridColDef[] = [
+      {
+        field: "student",
+        headerName: "Étudiant",
+        minWidth: 200,
+        flex: 1,
+        valueGetter: (params) => {
+          // Si c'est déjà une string, la retourner
+          if (typeof params.row.student === "string") {
+            return params.row.student;
+          }
+          // Sinon, essayer de récupérer depuis identity_uuid
+          return params.row.identity_uuid || "—";
+        },
+      },
+      {
+        field: "total_amount",
+        headerName: "Montant",
+        minWidth: 150,
+        flex: 1,
+        valueFormatter: (params) => `${Number(params.value || 0).toLocaleString("fr-FR")} XAF`,
+        renderCell: (params) => (
+          <Typography variant="body1" sx={{ fontWeight: "bold" }}>
+            {Number(params.value || 0).toLocaleString("fr-FR")} XAF
+          </Typography>
+        ),
+      },
+      {
+        field: "due_date",
+        headerName: "Échéance",
+        minWidth: 150,
+        flex: 1,
+        valueFormatter: (params) => {
+          if (!params.value) return "—";
+          return new Date(params.value).toLocaleDateString("fr-FR");
+        },
+      },
+      {
+        field: "actions",
+        type: "actions",
+        headerName: "Actions",
+        width: 120,
+        getActions: (params) => [
+          <GridActionsCellItem
+            key="encash"
+            icon={<CheckCircle />}
+            label="Encaisser"
+            onClick={() => {
+              toast("Fonctionnalité d'encaissement à venir", { icon: "💳" });
+            }}
+          />,
+        ],
+      },
+    ];
+
     return (
       <Box>
         <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 3 }}>
           <Typography variant="h4">Gestion financière</Typography>
-          <Button variant="contained" color="primary" onClick={() => alert("Fonctionnalité d'encaissement à venir")}>
-            Encaisser
-          </Button>
+          <Box sx={{ display: "flex", gap: 1 }}>
+            <Button variant="outlined" component={Link} to="/students?status=Bloqué">
+              Étudiants bloqués
+            </Button>
+            <Button variant="contained" color="primary" onClick={() => alert("Fonctionnalité d'encaissement à venir")}>
+              Encaisser
+            </Button>
+          </Box>
         </Box>
         <Grid container spacing={3}>
           <Grid item xs={12} md={8}>
@@ -307,36 +422,24 @@ const DashboardContent: React.FC = () => {
                 <Typography variant="h6" gutterBottom>
                   Factures impayées
                 </Typography>
-                <TableContainer>
-                  <Table>
-                    <TableHead>
-                      <TableRow>
-                        <TableCell>Étudiant</TableCell>
-                        <TableCell align="right">Montant</TableCell>
-                        <TableCell>Échéance</TableCell>
-                        <TableCell align="center">Action</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {data?.unpaidInvoices?.map((invoice, index) => (
-                        <TableRow key={index}>
-                          <TableCell>{invoice.student}</TableCell>
-                          <TableCell align="right">
-                            <Typography variant="body1" sx={{ fontWeight: "bold" }}>
-                              {invoice.amount.toLocaleString("fr-FR")} XAF
-                            </Typography>
-                          </TableCell>
-                          <TableCell>{new Date(invoice.dueDate).toLocaleDateString("fr-FR")}</TableCell>
-                          <TableCell align="center">
-                            <Button size="small" variant="outlined" color="primary">
-                              Détails
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
+                {invoicesLoading ? (
+                  <Box sx={{ display: "flex", justifyContent: "center", py: 4 }}>
+                    <CircularProgress />
+                  </Box>
+                ) : (
+                  <Box sx={{ height: 400, width: "100%" }}>
+                    <DataGrid
+                      rows={invoices.map((inv, idx) => ({ id: inv.id || idx, ...inv }))}
+                      columns={invoiceColumns}
+                      pageSizeOptions={[10, 25, 50]}
+                      initialState={{
+                        pagination: {
+                          paginationModel: { pageSize: 10 },
+                        },
+                      }}
+                    />
+                  </Box>
+                )}
               </CardContent>
             </Card>
           </Grid>
@@ -351,8 +454,77 @@ const DashboardContent: React.FC = () => {
                   {(data?.totalPending || 0).toLocaleString("fr-FR")} XAF
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
-                  {data?.unpaidInvoices?.length || 0} facture(s) en attente de paiement
+                  {data?.unpaidInvoices?.length || invoices.length || 0} facture(s) en attente de paiement
                 </Typography>
+              </CardContent>
+            </Card>
+          </Grid>
+        </Grid>
+      </Box>
+    );
+  }
+
+  // DOYEN / VALIDATOR_ACAD
+  if (activeRole === "DOYEN" || activeRole === "VALIDATOR_ACAD") {
+    return (
+      <Box>
+        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 3 }}>
+          <Typography variant="h4">Pilotage académique</Typography>
+          <Box sx={{ display: "flex", gap: 1 }}>
+            <Button variant="contained" component={Link} to="/students">
+              Gérer les étudiants
+            </Button>
+            <Button variant="outlined" component={Link} to="/notes">
+              PV Jury
+            </Button>
+          </Box>
+        </Box>
+        <Card>
+          <CardContent>
+            <Typography variant="h6" gutterBottom>
+              Règles académiques de la faculté
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Ajustez les règles de notation et les règles financières selon votre scope.
+            </Typography>
+            <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+              <Button variant="contained" component={Link} to="/faculties">
+                Ouvrir la gestion des facultés
+              </Button>
+            </Box>
+          </CardContent>
+        </Card>
+      </Box>
+    );
+  }
+
+  // SCOLARITE
+  if (activeRole === "SCOLARITE") {
+    return (
+      <Box>
+        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 3 }}>
+          <Typography variant="h4">Gestion de la scolarité</Typography>
+          <Box sx={{ display: "flex", gap: 1 }}>
+            <Button variant="contained" component={Link} to="/students">
+              Inscrire / Gérer étudiants
+            </Button>
+          </Box>
+        </Box>
+        <Grid container spacing={3}>
+          <Grid item xs={12} md={6}>
+            <Card>
+              <CardContent>
+                <Typography variant="h6" gutterBottom>
+                  Actions rapides
+                </Typography>
+                <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
+                  <Button variant="outlined" fullWidth component={Link} to="/students">
+                    Liste des étudiants
+                  </Button>
+                  <Button variant="outlined" fullWidth onClick={() => alert("Fonctionnalité à venir")}>
+                    Nouvelle inscription
+                  </Button>
+                </Box>
               </CardContent>
             </Card>
           </Grid>

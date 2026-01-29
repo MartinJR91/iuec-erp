@@ -9,6 +9,10 @@ export interface DashboardData {
     monthlyRevenue?: string;
     sodAlerts?: number;
     attendanceRate?: number;
+    studentsByFaculty?: Array<{
+      facultyCode: string;
+      students: number;
+    }>;
   };
   graph?: Array<{
     month: string;
@@ -63,20 +67,24 @@ export const useDashboardData = (role: UserRole | null): { data: DashboardData |
 
         setData(response.data);
       } catch (err: unknown) {
+        let errorMessage = "Erreur lors du chargement des données";
         if (axios.isAxiosError(err)) {
           const axiosError = err as AxiosError<{ detail?: string }>;
           if (axiosError.response?.status === 401) {
-            setError("Non authentifié. Veuillez vous reconnecter.");
+            errorMessage = "Non authentifié. Veuillez vous reconnecter.";
           } else if (axiosError.response?.status === 403) {
-            setError("Accès refusé. Rôle non autorisé.");
+            errorMessage = "Accès refusé. Rôle non autorisé.";
           } else if (axiosError.response?.status === 500) {
-            setError("Erreur serveur. Veuillez réessayer plus tard.");
+            errorMessage = "Erreur serveur. Veuillez réessayer plus tard.";
           } else {
-            setError(axiosError.response?.data?.detail || "Erreur lors du chargement des données");
+            errorMessage = axiosError.response?.data?.detail || "Erreur lors du chargement des données";
           }
         } else {
-          setError(err instanceof Error ? err.message : "Erreur lors du chargement des données");
+          errorMessage = err instanceof Error ? err.message : "Erreur lors du chargement des données";
         }
+        setError(errorMessage);
+        // Toast d'erreur
+        toast.error(errorMessage);
       } finally {
         setLoading(false);
       }

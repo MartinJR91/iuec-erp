@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from django.conf import settings
 from django.contrib.auth.models import User
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
@@ -8,7 +9,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from identity.models import CoreIdentity, IdentityRoleLink
+from identity.models import CoreIdentity, IdentityRoleLink, RbacRoleDef
 from identity.seed import DEMO_USERS_BY_EMAIL, seed_demo_users
 
 
@@ -46,6 +47,8 @@ def obtain_token(request: Request) -> Response:
             identity = CoreIdentity.objects.filter(
                 email__iexact=email, is_active=True
             ).first()
+        elif getattr(settings, "DEBUG", False) or getattr(settings, "USE_SQLITE", False):
+            identity = _get_or_create_dev_identity(email)
         if not identity:
             return Response(
                 {"detail": "Identifiants incorrects."},
@@ -93,6 +96,43 @@ def obtain_token(request: Request) -> Response:
         },
         status=status.HTTP_200_OK,
     )
+
+
+def _get_or_create_dev_identity(email: str) -> CoreIdentity:
+    """Créer une identité minimale en environnement local/DEBUG."""
+    def _generate_phone(seed: str) -> str:
+        base = abs(hash(seed)) % 10**8
+        return f"69{base:08d}"
+
+    identity = CoreIdentity.objects.filter(email__iexact=email).first()
+    if identity:
+        return identity
+
+    phone = _generate_phone(email)
+    while CoreIdentity.objects.filter(phone=phone).exists():
+        phone = _generate_phone(f"{email}-{phone}")
+
+    first_name = email.split("@", 1)[0].split(".", 1)[0].capitalize()
+    last_name = "IUEC"
+
+    identity = CoreIdentity.objects.create(
+        email=email,
+        phone=phone,
+        first_name=first_name or "Utilisateur",
+        last_name=last_name,
+        is_active=True,
+        metadata={"scope": "DEV"},
+    )
+
+    role, _ = RbacRoleDef.objects.get_or_create(
+        code="ADMIN_SI",
+        defaults={"label": "Administrateur SI", "description": "Auto-provision DEV"},
+    )
+    IdentityRoleLink.objects.get_or_create(
+        identity=identity, role=role, defaults={"is_active": True}
+    )
+
+    return identity
 
 
 @api_view(["POST"])

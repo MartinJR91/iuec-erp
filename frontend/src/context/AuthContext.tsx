@@ -13,7 +13,10 @@ export type UserRole =
   | "ENSEIGNANT"
   | "OPERATOR_FINANCE"
   | "USER_STUDENT"
-  | "VIEWER_STRATEGIC";
+  | "VIEWER_STRATEGIC"
+  | "VALIDATOR_ACAD"
+  | "DOYEN"
+  | "SCOLARITE";
 
 export interface User {
   email: string;

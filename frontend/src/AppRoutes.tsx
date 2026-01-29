@@ -7,6 +7,9 @@ import { useAuth } from "./context/AuthContext";
 
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const Login = lazy(() => import("./pages/Login"));
+const Faculties = lazy(() => import("./pages/Faculties"));
+const Students = lazy(() => import("./pages/Students"));
+const Notes = lazy(() => import("./pages/Notes"));
 
 const AppRoutes: React.FC = () => {
   const { token } = useAuth();
@@ -32,6 +35,30 @@ const AppRoutes: React.FC = () => {
           element={
             <ProtectedRoute>
               <Dashboard />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/faculties"
+          element={
+            <ProtectedRoute>
+              <Faculties />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/students"
+          element={
+            <ProtectedRoute>
+              <Students />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/notes"
+          element={
+            <ProtectedRoute>
+              <Notes />
             </ProtectedRoute>
           }
         />

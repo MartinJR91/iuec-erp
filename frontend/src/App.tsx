@@ -1,5 +1,6 @@
 import React from "react";
 import { AppBar, Box, Button, Container, Toolbar, Typography } from "@mui/material";
+import { Toaster } from "react-hot-toast";
 
 import AppRoutes from "./AppRoutes";
 import RoleSwitcher from "./components/RoleSwitcher";
@@ -11,6 +12,7 @@ const App: React.FC = () => {
 
   return (
     <>
+      <Toaster position="top-right" />
       {token && (
         <AppBar position="sticky" color="primary">
           <Toolbar>

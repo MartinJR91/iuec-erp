@@ -9,7 +9,7 @@ from django.core.management.base import BaseCommand
 from django.db import transaction
 from django.utils import timezone
 
-from apps.academic.models import GradeEntry, Program
+from apps.academic.models import Faculty, GradeEntry, Program
 from apps.finance.models import Invoice
 from identity.models import CoreIdentity, IdentityRoleLink, RbacRoleDef
 
@@ -231,10 +231,28 @@ class Command(BaseCommand):
                 )
 
     def _seed_programs(self) -> None:
+        fase, _ = Faculty.objects.get_or_create(
+            code="FASE",
+            defaults={
+                "name": "Faculté des Sciences et Techniques",
+                "tutelle": "MINESUP",
+                "is_active": True,
+            },
+        )
+        fsg, _ = Faculty.objects.get_or_create(
+            code="FSG",
+            defaults={
+                "name": "Faculté des Sciences de Gestion",
+                "tutelle": "MINESUP",
+                "is_active": True,
+            },
+        )
+
         Program.objects.get_or_create(
             code="FASE_ING",
             defaults={
-                "label": "FASE Ingénierie",
+                "name": "FASE Ingénierie",
+                "faculty": fase,
                 "academic_rules_json": {
                     "cycle_type": "LMD",
                     "grading_system": {"min_validate": 10, "compensation": True},
@@ -250,7 +268,8 @@ class Command(BaseCommand):
         Program.objects.get_or_create(
             code="FSG",
             defaults={
-                "label": "FSG Sciences de Gestion",
+                "name": "FSG Sciences de Gestion",
+                "faculty": fsg,
                 "academic_rules_json": {
                     "cycle_type": "LMD",
                     "grading_system": {

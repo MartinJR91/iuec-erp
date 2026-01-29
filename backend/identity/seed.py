@@ -23,9 +23,10 @@ DEMO_USERS = [
         "email": "recteur@iuec.cm",
         "password": "recteur123!",
         "first_name": "Recteur",
-        "last_name": "IUEC",
+        "last_name": "KAMGA",
         "phone": "690000001",
-        "roles": ("RECTEUR", "USER_TEACHER", "VIEWER_STRATEGIC"),
+        "roles": ("RECTEUR", "USER_TEACHER", "VIEWER_STRATEGIC", "VALIDATOR_ACAD"),
+        "scope_by_role": {"VALIDATOR_ACAD": "FASE"},
     },
     {
         "username": "enseignant.dupont",
@@ -35,6 +36,7 @@ DEMO_USERS = [
         "last_name": "Dupont",
         "phone": "690000002",
         "roles": ("USER_TEACHER",),
+        "scope_by_role": {"USER_TEACHER": "FST"},
     },
     {
         "username": "etudiant.ngono",
@@ -54,6 +56,25 @@ DEMO_USERS = [
         "phone": "690000004",
         "roles": ("OPERATOR_FINANCE",),
     },
+    {
+        "username": "doyen.fase",
+        "email": "doyen@iuec.cm",
+        "password": "doyen123!",
+        "first_name": "Doyen",
+        "last_name": "FASE",
+        "phone": "690000006",
+        "roles": ("DOYEN", "VALIDATOR_ACAD"),
+        "scope_by_role": {"DOYEN": "FASE", "VALIDATOR_ACAD": "FASE"},
+    },
+    {
+        "username": "scolarite.op",
+        "email": "scolarite@iuec.cm",
+        "password": "scol123!",
+        "first_name": "Scolarité",
+        "last_name": "Op",
+        "phone": "690000007",
+        "roles": ("SCOLARITE", "OPERATOR_SCOLA"),
+    },
 ]
 
 DEMO_USERS_BY_EMAIL = {user["email"]: user for user in DEMO_USERS}
@@ -68,6 +89,11 @@ def seed_demo_users() -> None:
         ("VIEWER_STRATEGIC", "Viewer Strategic"),
         ("USER_STUDENT", "Etudiant"),
         ("OPERATOR_FINANCE", "Opérateur Finance"),
+        ("OPERATOR_SCOLA", "Opérateur Scolarité"),
+        ("DOYEN", "Doyen"),
+        ("VALIDATOR_ACAD", "Validateur Académique"),
+        ("ADMIN_SI", "Administrateur SI"),
+        ("SCOLARITE", "Scolarité"),
     ]
     role_map = {code: _get_or_create_role(code, label) for code, label in roles}
 
@@ -82,6 +108,7 @@ def seed_demo_users() -> None:
         for user in DEMO_USERS:
             if user["email"] == "admin@iuec.cm":
                 continue
+            scope_by_role = user.get("scope_by_role", None)
             _ensure_identity_and_roles(
                 username=user["username"],
                 email=user["email"],
@@ -91,6 +118,7 @@ def seed_demo_users() -> None:
                 roles=user["roles"],
                 role_map=role_map,
                 user_model=user_model,
+                scope_by_role=scope_by_role,
             )
 
 
@@ -121,6 +149,7 @@ def _ensure_identity_and_roles(
     roles: Iterable[str],
     role_map: dict[str, RbacRoleDef],
     user_model,
+    scope_by_role: dict | None = None,
 ) -> None:
     user, _ = user_model.objects.get_or_create(
         username=username, defaults={"email": email}
@@ -129,18 +158,32 @@ def _ensure_identity_and_roles(
         user.set_unusable_password()
         user.save(update_fields=["password"])
 
+    metadata = {}
+    if scope_by_role:
+        metadata["scope_by_role"] = scope_by_role
+    else:
+        metadata["scope"] = "FASE"  # Par défaut
+
     identity, _ = CoreIdentity.objects.get_or_create(
         email=email,
         defaults={
             "phone": phone,
             "first_name": first_name,
             "last_name": last_name,
-            "metadata": {"scope": "FASE"},
+            "metadata": metadata,
         },
     )
+    # Mettre à jour le metadata si scope_by_role est fourni
+    if scope_by_role and identity.metadata.get("scope_by_role") != scope_by_role:
+        identity.metadata = metadata
+        identity.save(update_fields=["metadata"])
+    # Mettre à jour le téléphone seulement s'il est différent et disponible
     if identity.phone != phone:
-        identity.phone = phone
-        identity.save(update_fields=["phone"])
+        # Vérifier si le numéro est déjà utilisé par une autre identité
+        existing = CoreIdentity.objects.filter(phone=phone).exclude(id=identity.id).first()
+        if not existing:
+            identity.phone = phone
+            identity.save(update_fields=["phone"])
 
     for role_code in roles:
         role = role_map[role_code]
