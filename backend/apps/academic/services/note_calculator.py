@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal, ROUND_HALF_UP
-from typing import Dict, Iterable, Protocol
+from typing import Dict, Iterable, Optional, Protocol
+
+from django.db.models import QuerySet
+
+from apps.academic.models import Evaluation, Grade, RegistrationPedagogical
 
 
 class RegistrationPedagogical(Protocol):
@@ -202,3 +206,135 @@ class UEGradeCalculator:
             validated = False
 
         return UEGradeResult(average=average, validated=validated)
+
+
+class NoteCalculatorService:
+    """Service pour calculer les moyennes et statuts des UE à partir des modèles Django."""
+
+    @staticmethod
+    def calcule_moyenne_ue(
+        registration_pedagogical: RegistrationPedagogical,
+    ) -> Decimal:
+        """
+        Calcule la moyenne pondérée d'une UE selon les règles JSON du programme.
+        
+        Args:
+            registration_pedagogical: L'inscription pédagogique pour laquelle calculer la moyenne
+            
+        Returns:
+            La moyenne pondérée de l'UE
+        """
+        teaching_unit = registration_pedagogical.teaching_unit
+        student = registration_pedagogical.registration_admin.student
+        
+        # Récupérer les règles du programme
+        program = student.current_program
+        if not program:
+            return Decimal("0")
+        
+        rules = program.academic_rules_json
+        grading = rules.get("grading_system", {})
+        
+        # Récupérer toutes les évaluations pour cette UE
+        course_elements = teaching_unit.course_elements.all()
+        evaluations = Evaluation.objects.filter(
+            course_element__in=course_elements
+        )
+        
+        # Récupérer toutes les notes de l'étudiant pour ces évaluations
+        grades = Grade.objects.filter(
+            evaluation__in=evaluations,
+            student=student,
+            is_absent=False,
+        ).exclude(value__isnull=True)
+        
+        if not grades.exists():
+            return Decimal("0")
+        
+        # Convertir les notes en EvaluationScore
+        evaluation_scores = []
+        for grade in grades:
+            evaluation = grade.evaluation
+            if grade.value is not None:
+                evaluation_scores.append(
+                    EvaluationScore(
+                        component=evaluation.type,
+                        value=grade.value,
+                        weight=evaluation.weight,
+                        max_score=evaluation.max_score,
+                    )
+                )
+        
+        # Utiliser UEGradeCalculator pour calculer la moyenne
+        result = UEGradeCalculator.calculate(evaluation_scores, rules)
+        return result.average
+
+    @staticmethod
+    def calcule_statut_ue(
+        registration_pedagogical: RegistrationPedagogical,
+    ) -> str:
+        """
+        Calcule le statut d'une UE : 'Validée', 'Ajourné', ou 'Bloquée'.
+        
+        Args:
+            registration_pedagogical: L'inscription pédagogique
+            
+        Returns:
+            Le statut de l'UE ('Validée', 'Ajourné', ou 'Bloquée')
+        """
+        teaching_unit = registration_pedagogical.teaching_unit
+        student = registration_pedagogical.registration_admin.student
+        
+        # Récupérer les règles du programme
+        program = student.current_program
+        if not program:
+            return "Ajourné"
+        
+        rules = program.academic_rules_json
+        grading = rules.get("grading_system", {})
+        min_validate = Decimal(str(grading.get("min_validate", 10)))
+        elimination_mark = grading.get("elimination_mark")
+        elimination_value = (
+            Decimal(str(elimination_mark)) if elimination_mark is not None else None
+        )
+        blocking_components = grading.get("blocking_components", [])
+        blocking_set = (
+            {str(item).upper() for item in blocking_components}
+            if isinstance(blocking_components, list)
+            else set()
+        )
+        
+        # Récupérer toutes les évaluations pour cette UE
+        course_elements = teaching_unit.course_elements.all()
+        evaluations = Evaluation.objects.filter(
+            course_element__in=course_elements
+        )
+        
+        # Récupérer toutes les notes de l'étudiant pour ces évaluations
+        grades = Grade.objects.filter(
+            evaluation__in=evaluations,
+            student=student,
+            is_absent=False,
+        ).exclude(value__isnull=True)
+        
+        # Vérifier les notes bloquantes (ex: TP < 10)
+        blocked = False
+        for grade in grades:
+            if grade.value is not None:
+                evaluation = grade.evaluation
+                if elimination_value is not None:
+                    if evaluation.type.upper() in blocking_set:
+                        if grade.value < elimination_value:
+                            blocked = True
+                            break
+        
+        # Calculer la moyenne
+        moyenne = NoteCalculatorService.calcule_moyenne_ue(registration_pedagogical)
+        
+        # Déterminer le statut
+        if blocked:
+            return "Bloquée"
+        elif moyenne >= min_validate:
+            return "Validée"
+        else:
+            return "Ajourné"

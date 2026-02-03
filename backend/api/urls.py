@@ -7,11 +7,15 @@ from rest_framework import permissions
 from rest_framework.routers import DefaultRouter
 
 from .auth import obtain_token, regenerate_token
+from .notes_views import GradesViewSet, jury_close, my_courses
 from .views import (
     bulk_update_grades,
     courses_endpoint,
     dashboard_data,
+    frais_options_endpoint,
     grades_endpoint,
+    programs_options_endpoint,
+    specialites_options_endpoint,
     students_endpoint,
     validate_grades,
     validate_registration,
@@ -35,6 +39,7 @@ router.register(r"faculties", FacultyViewSet, basename="faculties")
 router.register(r"programs", ProgramViewSet, basename="programs")
 router.register(r"student-profiles", StudentProfileViewSet, basename="student-profiles")
 router.register(r"students", StudentsViewSet, basename="students")
+router.register(r"grades", GradesViewSet, basename="grades")
 
 schema_view = get_schema_view(
     openapi.Info(
@@ -50,14 +55,18 @@ urlpatterns = [
     path("token/", obtain_token, name="obtain-token"),
     path("auth/regenerate-token/", regenerate_token, name="regenerate-token"),
     path("dashboard/", dashboard_data, name="dashboard-data"),
-    path("grades/", grades_endpoint, name="grades"),
-    path("grades/bulk-update/", bulk_update_grades, name="grades-bulk-update"),
+    path("grades/", grades_endpoint, name="grades"),  # Legacy endpoint
+    path("grades/bulk-update/", bulk_update_grades, name="grades-bulk-update"),  # Legacy endpoint
     path("grades/validate/", validate_grades, name="grades-validate"),
-    path("jury/close/", validate_grades, name="jury-close"),  # Alias pour clôture jury
-    path("courses/", courses_endpoint, name="courses"),
+    path("jury/close/", jury_close, name="jury-close"),
+    path("courses/", courses_endpoint, name="courses"),  # Legacy endpoint
+    path("courses/my-courses/", my_courses, name="my-courses"),
     # path("students/", students_endpoint, name="students"),  # Remplacé par StudentsViewSet
     path("registrations/validate/", validate_registration, name="registrations-validate"),
     path("workflows/", workflows_validate, name="workflows-validate"),
+    path("programs-options/", programs_options_endpoint, name="programs-options"),
+    path("specialites-options/", specialites_options_endpoint, name="specialites-options"),
+    path("frais-options/", frais_options_endpoint, name="frais-options"),
     path("swagger/", schema_view.with_ui("swagger", cache_timeout=0), name="swagger-ui"),
     path("redoc/", schema_view.with_ui("redoc", cache_timeout=0), name="redoc"),
     path("", include(router.urls)),

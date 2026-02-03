@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 from typing import Any, Dict
+from decimal import Decimal
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.db.models.signals import post_save
+from django.dispatch import receiver
 
 from identity.models import CoreIdentity
 
@@ -103,6 +106,11 @@ class TeachingUnit(models.Model):
     )
     credits = models.IntegerField(default=0)
     is_active = models.BooleanField(default=True)
+    teachers = models.ManyToManyField(
+        CoreIdentity,
+        related_name="taught_teaching_units",
+        blank=True,
+    )
 
     class Meta:
         db_table = "TEACHING_UNIT"
@@ -172,6 +180,35 @@ class StudentProfile(models.Model):
 
     def __str__(self) -> str:
         return f"{self.matricule_permanent} - {self.identity.email}"
+
+    @staticmethod
+    def generate_matricule() -> str:
+        """
+        Génère un matricule unique au format 25B00001, 25B00002, etc.
+        Cherche le dernier matricule existant et incrémente.
+        Si aucun matricule n'existe, commence à 25B00001.
+        """
+        # Récupérer tous les matricules existants qui commencent par "25B"
+        existing_matricules = StudentProfile.objects.filter(
+            matricule_permanent__startswith="25B"
+        ).values_list("matricule_permanent", flat=True)
+        
+        # Extraire les numéros et trouver le max
+        max_num = 0
+        for matricule in existing_matricules:
+            try:
+                # Extraire les 5 derniers chiffres (ex: "25B00001" -> "00001" -> 1)
+                if len(matricule) >= 8:  # Au moins "25B00001" (8 caractères)
+                    num_str = matricule[3:]  # Skip "25B"
+                    num = int(num_str)
+                    if num > max_num:
+                        max_num = num
+            except (ValueError, IndexError):
+                continue
+        
+        # Générer le prochain matricule (commence à 1 si aucun n'existe)
+        next_num = max_num + 1
+        return f"25B{next_num:05d}"
 
 
 class RegistrationAdmin(models.Model):
@@ -275,25 +312,60 @@ class RegistrationPedagogical(models.Model):
         return f"{self.registration_admin} - {self.teaching_unit.code}"
 
 
+class CourseElement(models.Model):
+    """COURSE_ELEMENT - Élément de cours (matière/cours)."""
+
+    code = models.CharField(max_length=32, unique=True)
+    name = models.CharField(max_length=150)
+    teaching_unit = models.ForeignKey(
+        TeachingUnit,
+        on_delete=models.CASCADE,
+        related_name="course_elements",
+        null=True,
+        blank=True,
+    )
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        db_table = "COURSE_ELEMENT"
+        verbose_name = "Élément de cours"
+        verbose_name_plural = "Éléments de cours"
+
+    def __str__(self) -> str:
+        return f"{self.code} - {self.name}"
+
+
 class Evaluation(models.Model):
     """EVALUATION - Composantes d'évaluation par cours."""
 
     class EvaluationType(models.TextChoices):
         CC = "CC", "CC"
         TP = "TP", "TP"
-        EXAM = "EXAM", "Exam"
+        EXAM = "Exam", "Exam"
+        STAGE = "Stage", "Stage"
+        AUTRE = "Autre", "Autre"
 
-    course_id = models.UUIDField()
+    course_element = models.ForeignKey(
+        CourseElement,
+        on_delete=models.CASCADE,
+        related_name="evaluations",
+        db_column="course_element_id",
+        null=True,
+        blank=True,
+    )
     type = models.CharField(max_length=16, choices=EvaluationType.choices)
-    weight = models.DecimalField(max_digits=6, decimal_places=3, default=1)
-    max_score = models.DecimalField(max_digits=6, decimal_places=2, default=20)
+    weight = models.DecimalField(max_digits=5, decimal_places=2, default=1)
+    max_score = models.DecimalField(max_digits=5, decimal_places=2, default=20)
+    session_date = models.DateField(null=True, blank=True)
     is_closed = models.BooleanField(default=False)
 
     class Meta:
         db_table = "EVALUATION"
+        verbose_name = "Évaluation"
+        verbose_name_plural = "Évaluations"
 
     def __str__(self) -> str:
-        return f"{self.course_id} - {self.type}"
+        return f"{self.course_element.code} - {self.type}"
 
 
 class Grade(models.Model):
@@ -305,7 +377,10 @@ class Grade(models.Model):
     student = models.ForeignKey(
         StudentProfile, on_delete=models.CASCADE, related_name="grades"
     )
-    value = models.DecimalField(max_digits=6, decimal_places=2)
+    value = models.DecimalField(
+        max_digits=5, decimal_places=2, null=True, blank=True
+    )
+    is_absent = models.BooleanField(default=False)
     teacher = models.ForeignKey(
         CoreIdentity,
         on_delete=models.SET_NULL,
@@ -314,11 +389,18 @@ class Grade(models.Model):
         related_name="grades_given",
         db_column="teacher_uuid",
     )
+    created_by_role = models.CharField(max_length=50, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         db_table = "GRADE"
-        unique_together = ("evaluation", "student")
+        verbose_name = "Note"
+        verbose_name_plural = "Notes"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["evaluation", "student"], name="unique_grade_per_evaluation_student"
+            )
+        ]
 
     def __str__(self) -> str:
         return f"{self.student_id} - {self.evaluation_id}"
@@ -337,3 +419,113 @@ class GradeEntry(models.Model):
 
     def __str__(self) -> str:
         return f"{self.identity_uuid} {self.ue_code} {self.component}"
+
+
+class Frais(models.Model):
+    """FRAIS - Frais d'inscription et de scolarité par programme."""
+
+    program = models.ForeignKey(
+        Program,
+        on_delete=models.CASCADE,
+        related_name="frais",
+        db_column="program_id",
+    )
+    academic_year = models.CharField(
+        max_length=16,
+        help_text="Année académique (ex: 2024-2025)",
+    )
+    # Frais d'inscription
+    inscription_iuec = models.DecimalField(
+        max_digits=10, decimal_places=2, default=Decimal("0")
+    )
+    inscription_tutelle = models.DecimalField(
+        max_digits=10, decimal_places=2, default=Decimal("0")
+    )
+    inscription_total = models.DecimalField(
+        max_digits=10, decimal_places=2, default=Decimal("0")
+    )
+    echeance_inscription = models.DateField(null=True, blank=True)
+    # Frais de scolarité
+    scolarite_tranche1 = models.DecimalField(
+        max_digits=10, decimal_places=2, default=Decimal("0")
+    )
+    scolarite_tranche2 = models.DecimalField(
+        max_digits=10, decimal_places=2, default=Decimal("0")
+    )
+    scolarite_tranche3 = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True, default=None
+    )
+    scolarite_total = models.DecimalField(
+        max_digits=10, decimal_places=2, default=Decimal("0")
+    )
+    echeances_scolarite = models.JSONField(
+        default=list,
+        help_text="Liste des dates d'échéances de scolarité",
+    )
+    # Autres frais (kits, blouses, etc.)
+    autres_frais = models.JSONField(
+        default=dict,
+        help_text="Autres frais spécifiques (kits, blouses, matières d'œuvre, etc.)",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "FRAIS"
+        verbose_name = "Frais"
+        verbose_name_plural = "Frais"
+        unique_together = [["program", "academic_year"]]
+        indexes = [
+            models.Index(fields=["program", "academic_year"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.program.code} - {self.academic_year}"
+
+
+@receiver(post_save, sender=Program)
+def recalculate_student_balance_on_fees_change(sender, instance: Program, created, **kwargs):
+    """
+    Recalcule le solde des étudiants si les frais du programme changent.
+    Ne s'exécute que si academic_rules_json a été modifié (frais ajoutés).
+    """
+    # Ne recalculer que si les frais ont été modifiés (pas à la création)
+    if created:
+        return
+    
+    # Vérifier si les frais ont été ajoutés/modifiés dans academic_rules_json
+    if "frais" not in instance.academic_rules_json:
+        return
+    
+    from apps.finance.models import Invoice
+    
+    # Récupérer tous les étudiants de ce programme
+    students = instance.students.all()
+    
+    from apps.finance.models import Payment
+    
+    for student in students:
+        # Recalculer le solde basé sur les factures existantes
+        # Le signal sur Invoice devrait déjà gérer cela, mais on force un refresh
+        total_invoices = Invoice.objects.filter(
+            identity_uuid=student.identity.id
+        ).aggregate(
+            total=models.Sum("total_amount")
+        )["total"] or Decimal("0")
+        
+        # Récupérer les paiements via les factures
+        total_payments = Payment.objects.filter(
+            invoice__identity_uuid=student.identity.id
+        ).aggregate(
+            total=models.Sum("amount")
+        )["total"] or Decimal("0")
+        
+        new_solde = total_invoices - total_payments
+        
+        if student.solde != new_solde:
+            new_finance_status = "Bloqué" if new_solde > 0 else "OK"
+            # Utiliser update pour éviter de déclencher à nouveau le signal
+            StudentProfile.objects.filter(id=student.id).update(
+                solde=new_solde,
+                finance_status=new_finance_status
+            )

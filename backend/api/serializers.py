@@ -3,6 +3,7 @@ from __future__ import annotations
 from rest_framework import serializers
 
 from apps.academic.models import (
+    CourseElement,
     Evaluation,
     Faculty,
     Grade,
@@ -11,6 +12,7 @@ from apps.academic.models import (
     RegistrationAdmin,
     RegistrationPedagogical,
     StudentProfile,
+    TeachingUnit,
     validate_academic_rules,
 )
 from apps.finance.models import Invoice, Payment
@@ -197,13 +199,80 @@ class StudentProfileSerializer(serializers.ModelSerializer):
         return "OK"
 
 
+class CourseElementSerializer(serializers.ModelSerializer):
+    """Serializer pour CourseElement."""
+    
+    class Meta:
+        model = CourseElement
+        fields = ("id", "code", "name", "teaching_unit", "is_active")
+        read_only_fields = ("id",)
+
+
 class EvaluationSerializer(serializers.ModelSerializer):
+    """Serializer pour Evaluation avec relations."""
+    
+    course_element_code = serializers.CharField(source="course_element.code", read_only=True)
+    course_element_name = serializers.CharField(source="course_element.name", read_only=True)
+    teaching_unit_code = serializers.SerializerMethodField()
+    
+    def get_teaching_unit_code(self, obj) -> str | None:
+        """Récupère le code de l'UE depuis course_element."""
+        if obj.course_element and obj.course_element.teaching_unit:
+            return obj.course_element.teaching_unit.code
+        return None
+    
     class Meta:
         model = Evaluation
-        fields = "__all__"
+        fields = (
+            "id",
+            "course_element",
+            "course_element_code",
+            "course_element_name",
+            "teaching_unit_code",
+            "type",
+            "weight",
+            "max_score",
+            "session_date",
+            "is_closed",
+        )
+        read_only_fields = ("id", "course_element_code", "course_element_name", "teaching_unit_code")
 
 
 class GradeSerializer(serializers.ModelSerializer):
+    """Serializer pour Grade avec relations."""
+    
+    evaluation_type = serializers.CharField(source="evaluation.type", read_only=True)
+    evaluation_course_element = serializers.CharField(
+        source="evaluation.course_element.code", read_only=True
+    )
+    student_matricule = serializers.CharField(source="student.matricule_permanent", read_only=True)
+    student_email = serializers.CharField(source="student.identity.email", read_only=True)
+    teacher_email = serializers.CharField(source="teacher.email", read_only=True, allow_null=True)
+    
     class Meta:
         model = Grade
-        fields = "__all__"
+        fields = (
+            "id",
+            "evaluation",
+            "evaluation_type",
+            "evaluation_course_element",
+            "student",
+            "student_matricule",
+            "student_email",
+            "value",
+            "is_absent",
+            "teacher",
+            "teacher_email",
+            "created_by_role",
+            "created_at",
+        )
+        read_only_fields = ("id", "created_at")
+
+
+class BulkGradeSerializer(serializers.Serializer):
+    """Serializer pour la mise à jour en masse des notes."""
+    
+    evaluation_id = serializers.IntegerField()
+    student_id = serializers.IntegerField()
+    value = serializers.DecimalField(max_digits=5, decimal_places=2, required=False, allow_null=True)
+    is_absent = serializers.BooleanField(default=False)

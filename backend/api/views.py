@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 from uuid import uuid4
 
-from django.db.models import Count, Q, Sum
+from django.db.models import Count, F, Q, Sum
 from django.db.models.functions import TruncMonth
 from django.http import HttpRequest
 from django.utils import timezone
@@ -17,6 +17,7 @@ from core import signals as _signals  # noqa: F401
 from apps.academic.models import (
     AcademicYear,
     Evaluation,
+    Frais,
     Grade,
     Program,
     RegistrationAdmin,
@@ -78,47 +79,104 @@ def dashboard_data(request: HttpRequest) -> Response:
 
         if role in ("RECTEUR", "DAF", "SG", "VIEWER_STRATEGIC", "ADMIN_SI"):
             # Dashboard institutionnel : KPI + graphique évolution
-            total_students = StudentProfile.objects.count()
-            total_registrations = RegistrationAdmin.objects.count()
-            attendance_rate = (
-                int((total_registrations / total_students) * 100)
-                if total_students
-                else 0
-            )
+            try:
+                total_students = StudentProfile.objects.count()
+                total_registrations = RegistrationAdmin.objects.count()
+                attendance_rate = (
+                    int((total_registrations / total_students) * 100)
+                    if total_students and total_students > 0
+                    else 0
+                )
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Erreur calcul KPI RECTEUR: {str(e)}")
+                total_students = 0
+                total_registrations = 0
+                attendance_rate = 0
 
-            month_start = timezone.now().date().replace(day=1)
-            monthly_total = (
-                Invoice.objects.filter(
-                    status=Invoice.STATUS_PAID, issue_date__gte=month_start
-                ).aggregate(total=Sum("total_amount"))["total"]
-                or Decimal("0")
-            )
-            monthly_revenue = f"{int(monthly_total):,}".replace(",", " ") + " XAF"
+            try:
+                month_start = timezone.now().date().replace(day=1)
+                monthly_total = (
+                    Invoice.objects.filter(
+                        status=Invoice.STATUS_PAID, issue_date__gte=month_start
+                    ).aggregate(total=Sum("total_amount"))["total"]
+                    or Decimal("0")
+                )
+                monthly_revenue = f"{int(monthly_total):,}".replace(",", " ") + " XAF"
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Erreur calcul revenus mensuels: {str(e)}")
+                monthly_revenue = "0 XAF"
 
-            sod_since = timezone.now() - timedelta(days=30)
-            sod_alerts = SysAuditLog.objects.filter(
-                action__icontains="SOD", created_at__gte=sod_since
-            ).count()
+            try:
+                sod_since = timezone.now() - timedelta(days=30)
+                sod_alerts = SysAuditLog.objects.filter(
+                    action__icontains="SOD", created_at__gte=sod_since
+                ).count()
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Erreur calcul alertes SoD: {str(e)}")
+                sod_alerts = 0
 
-            students_by_faculty = (
-                StudentProfile.objects.values("current_program__faculty__code")
-                .annotate(count=Count("id"))
-                .order_by("current_program__faculty__code")
-            )
+            try:
+                students_by_faculty = (
+                    StudentProfile.objects.values("current_program__faculty__code")
+                    .annotate(count=Count("id"))
+                    .order_by("current_program__faculty__code")
+                )
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Erreur calcul étudiants par faculté: {str(e)}")
+                students_by_faculty = []
 
             enrollment_evolution = []
-            for item in (
-                StudentProfile.objects.annotate(month=TruncMonth("date_entree"))
-                .values("month")
-                .annotate(count=Count("id"))
-                .order_by("month")
-            ):
-                month = item["month"]
-                if not month:
-                    continue
-                enrollment_evolution.append(
-                    {"month": month.strftime("%b %Y"), "value": item["count"]}
-                )
+            try:
+                for item in (
+                    StudentProfile.objects.annotate(month=TruncMonth("date_entree"))
+                    .values("month")
+                    .annotate(count=Count("id"))
+                    .order_by("month")
+                ):
+                    month = item["month"]
+                    if not month:
+                        continue
+                    enrollment_evolution.append(
+                        {"month": month.strftime("%b %Y"), "value": item["count"]}
+                    )
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Erreur calcul évolution inscriptions: {str(e)}")
+                enrollment_evolution = []
+
+            # KPI Notes : % UE validées et % étudiants avec dette
+            ue_validated_percent = 0
+            students_with_debt_percent = 0
+            try:
+                total_registrations_ped = RegistrationPedagogical.objects.count()
+                validated_registrations = RegistrationPedagogical.objects.filter(
+                    status__in=["Validé", "Validée"]
+                ).count()
+                if total_registrations_ped > 0:
+                    ue_validated_percent = (validated_registrations / total_registrations_ped) * 100
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Erreur calcul % UE validées: {str(e)}")
+            
+            try:
+                total_students_with_balance = StudentProfile.objects.count()
+                students_with_debt = StudentProfile.objects.filter(solde__gt=0).count()
+                if total_students_with_balance > 0:
+                    students_with_debt_percent = (students_with_debt / total_students_with_balance) * 100
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Erreur calcul % étudiants avec dette: {str(e)}")
 
             data = {
                 "kpis": {
@@ -133,21 +191,29 @@ def dashboard_data(request: HttpRequest) -> Response:
                         }
                         for item in students_by_faculty
                     ],
+                    "ueValidatedPercent": round(ue_validated_percent, 1),
+                    "studentsWithDebtPercent": round(students_with_debt_percent, 1),
                 },
                 "graph": enrollment_evolution,
             }
 
-            SysAuditLog.objects.create(
-                action="KPI_ACCESS",
-                entity_type="DASHBOARD",
-                entity_id=uuid4(),
-                actor_email=user_email,
-                active_role=role,
-                payload={
-                    "kpis": ["studentsCount", "monthlyRevenue", "sodAlerts", "attendanceRate"],
-                    "studentsByFaculty": True,
-                },
-            )
+            try:
+                SysAuditLog.objects.create(
+                    action="KPI_ACCESS",
+                    entity_type="DASHBOARD",
+                    entity_id=uuid4(),
+                    actor_email=user_email,
+                    active_role=role,
+                    payload={
+                        "kpis": ["studentsCount", "monthlyRevenue", "sodAlerts", "attendanceRate"],
+                        "studentsByFaculty": True,
+                    },
+                )
+            except Exception as e:
+                # Ne pas bloquer si l'audit log échoue
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(f"Erreur création audit log: {str(e)}")
 
         elif role in ("USER_TEACHER", "ENSEIGNANT"):
             # Dashboard enseignant : liste des cours
@@ -218,8 +284,7 @@ def dashboard_data(request: HttpRequest) -> Response:
 
         elif role == "OPERATOR_FINANCE":
             # Dashboard finance : factures impayées (vraies données)
-            from apps.finance.models import Invoice, Payment
-            from django.db.models import Sum, F
+            # Invoice et Payment sont déjà importés en haut du fichier
 
             # Récupérer les factures non payées (status ISSUED ou DRAFT, montant > paiements)
             unpaid_invoices_qs = Invoice.objects.filter(
@@ -827,7 +892,7 @@ def grades_endpoint(request: HttpRequest) -> Response:
 def courses_endpoint(request: HttpRequest) -> Response:
     """GET /api/courses/?teacher=me : Liste des cours d'un enseignant."""
     role_active = getattr(request, "role_active", None)
-    if role_active not in {"USER_TEACHER", "ENSEIGNANT"}:
+    if role_active not in {"USER_TEACHER", "ENSEIGNANT", "VALIDATOR_ACAD", "DOYEN", "RECTEUR", "ADMIN_SI"}:
         return Response({"detail": "Accès refusé."}, status=status.HTTP_403_FORBIDDEN)
     
     teacher_identity = CoreIdentity.objects.filter(
@@ -836,36 +901,52 @@ def courses_endpoint(request: HttpRequest) -> Response:
     if not teacher_identity:
         return Response({"detail": "Identité enseignant introuvable."}, status=status.HTTP_404_NOT_FOUND)
     
-    # Récupérer les course_id uniques depuis les Grades créés par cet enseignant
-    course_ids = (
-        Grade.objects.filter(teacher=teacher_identity)
-        .values_list("evaluation__course_id", flat=True)
-        .distinct()
-    )
+    # Si teacher=me, retourner les cours assignés à cet enseignant via TeachingUnit.teachers
+    teacher_param = request.GET.get("teacher")
+    if teacher_param == "me" and role_active in {"USER_TEACHER", "ENSEIGNANT"}:
+        # Récupérer les TeachingUnits assignées à cet enseignant
+        teaching_units = TeachingUnit.objects.filter(teachers=teacher_identity, is_active=True).select_related("program")
+        courses = []
+        for tu in teaching_units:
+            courses.append({
+                "id": str(tu.id),
+                "code": tu.code,
+                "name": tu.name,
+                "program_code": tu.program.code if tu.program else None,
+            })
+        
+        # Si aucun cours assigné, chercher aussi dans les Grades créés par cet enseignant (fallback)
+        if not courses:
+            course_ids = (
+                Grade.objects.filter(teacher=teacher_identity)
+                .values_list("evaluation__course_id", flat=True)
+                .distinct()
+            )
+            for course_id in course_ids:
+                try:
+                    teaching_unit = TeachingUnit.objects.filter(id=course_id).first()
+                    if teaching_unit:
+                        courses.append({
+                            "id": str(course_id),
+                            "code": teaching_unit.code,
+                            "name": teaching_unit.name,
+                            "program_code": teaching_unit.program.code if teaching_unit.program else None,
+                        })
+                except Exception:
+                    continue
+        
+        return Response({"results": courses}, status=status.HTTP_200_OK)
     
-    # Récupérer les TeachingUnits correspondantes (si course_id correspond à TeachingUnit.id)
+    # Sinon, retourner tous les cours (pour VALIDATOR_ACAD, DOYEN, etc.)
+    teaching_units = TeachingUnit.objects.filter(is_active=True).select_related("program")
     courses = []
-    for course_id in course_ids:
-        try:
-            # Essayer de trouver une TeachingUnit avec cet ID
-            teaching_unit = TeachingUnit.objects.filter(id=course_id).first()
-            if teaching_unit:
-                courses.append({
-                    "id": str(course_id),
-                    "code": teaching_unit.code,
-                    "name": teaching_unit.name,
-                    "program_code": teaching_unit.program.code if teaching_unit.program else None,
-                })
-            else:
-                # Sinon, créer une entrée générique
-                courses.append({
-                    "id": str(course_id),
-                    "code": f"COURSE-{str(course_id)[:8]}",
-                    "name": f"Cours {str(course_id)[:8]}",
-                    "program_code": None,
-                })
-        except Exception:
-            continue
+    for tu in teaching_units:
+        courses.append({
+            "id": str(tu.id),
+            "code": tu.code,
+            "name": tu.name,
+            "program_code": tu.program.code if tu.program else None,
+        })
     
     return Response({"results": courses}, status=status.HTTP_200_OK)
 
@@ -1114,3 +1195,269 @@ def workflows_validate(request: HttpRequest) -> Response:
     )
 
     return Response({"detail": "Workflow validé."}, status=status.HTTP_200_OK)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def programs_options_endpoint(request: HttpRequest) -> Response:
+    """
+    GET /api/programs-options/?faculte=FST
+    Retourne les niveaux disponibles (Licence, Master, BTS) pour une faculté donnée.
+    """
+    faculte = request.GET.get("faculte", "").strip().upper()
+    if not faculte:
+        return Response(
+            {"detail": "Paramètre 'faculte' requis (ex: FST, FASE, FSE, BTS, Capacite_Droit)."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    # Récupérer tous les programmes actifs de cette faculté
+    programs = Program.objects.filter(
+        faculty__code__iexact=faculte,
+        is_active=True,
+    ).select_related("faculty")
+
+    # Extraire les niveaux uniques depuis les codes/noms des programmes
+    niveaux = set()
+    for program in programs:
+        code_upper = program.code.upper()
+        name_upper = program.name.upper()
+        
+        # Détecter les niveaux dans le code ou le nom
+        if "LICENCE" in code_upper or "LICENCE" in name_upper or "L1" in code_upper or "L2" in code_upper or "L3" in code_upper:
+            niveaux.add("Licence")
+        if "MASTER" in code_upper or "MASTER" in name_upper or "M1" in code_upper or "M2" in code_upper:
+            niveaux.add("Master")
+        if "BTS" in code_upper or "BTS" in name_upper:
+            niveaux.add("BTS")
+        if "CAPACITE" in code_upper or "CAPACITE" in name_upper:
+            niveaux.add("Capacite_Droit")
+
+    # Si aucun niveau trouvé, retourner les niveaux par défaut selon la faculté
+    if not niveaux:
+        if faculte == "BTS":
+            niveaux = {"BTS"}
+        elif faculte == "CAPACITE_DROIT":
+            niveaux = {"Capacite_Droit"}
+        else:
+            niveaux = {"Licence", "Master"}
+
+    return Response(
+        {"faculte": faculte, "niveaux": sorted(list(niveaux))},
+        status=status.HTTP_200_OK,
+    )
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def specialites_options_endpoint(request: HttpRequest) -> Response:
+    """
+    GET /api/specialites-options/?faculte=FST&niveau=Licence
+    Retourne les spécialités disponibles pour une faculté et un niveau donnés.
+    """
+    faculte = request.GET.get("faculte", "").strip().upper()
+    niveau = request.GET.get("niveau", "").strip()
+    
+    if not faculte or not niveau:
+        return Response(
+            {"detail": "Paramètres 'faculte' et 'niveau' requis."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    # Récupérer les programmes correspondants
+    programs = Program.objects.filter(
+        faculty__code__iexact=faculte,
+        is_active=True,
+    ).select_related("faculty")
+
+    # Filtrer par niveau dans le code ou le nom
+    niveau_keywords = {
+        "Licence": ["LICENCE", "L1", "L2", "L3"],
+        "Master": ["MASTER", "M1", "M2"],
+        "BTS": ["BTS"],
+        "Capacite_Droit": ["CAPACITE"],
+    }
+    
+    keywords = niveau_keywords.get(niveau, [])
+    filtered_programs = []
+    for program in programs:
+        code_upper = program.code.upper()
+        name_upper = program.name.upper()
+        if any(kw in code_upper or kw in name_upper for kw in keywords):
+            filtered_programs.append(program)
+
+    # Extraire les spécialités (nom du programme sans le niveau)
+    specialites = []
+    for program in filtered_programs:
+        # Extraire la spécialité du nom (ex: "Licence Sciences Biomédicales" -> "Sciences Biomédicales")
+        specialite_name = program.name
+        for kw in keywords:
+            specialite_name = specialite_name.replace(kw, "").replace(kw.lower(), "").strip()
+        
+        # Si le nom est vide, utiliser le code
+        if not specialite_name:
+            # Extraire depuis le code (ex: "FST_Licence_Sciences_Biomedicales" -> "Sciences_Biomedicales")
+            code_parts = program.code.split("_")
+            if len(code_parts) > 2:
+                specialite_name = "_".join(code_parts[2:])
+            else:
+                specialite_name = program.code
+        
+        # Créer un identifiant unique pour la spécialité
+        specialite_key = specialite_name.upper().replace(" ", "_")
+        
+        specialites.append({
+            "key": specialite_key,
+            "name": specialite_name,
+            "program_id": str(program.id),
+            "program_code": program.code,
+        })
+
+    # Dédupliquer par key
+    seen = set()
+    unique_specialites = []
+    for spec in specialites:
+        if spec["key"] not in seen:
+            seen.add(spec["key"])
+            unique_specialites.append(spec)
+
+    return Response(
+        {
+            "faculte": faculte,
+            "niveau": niveau,
+            "specialites": unique_specialites,
+        },
+        status=status.HTTP_200_OK,
+    )
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def frais_options_endpoint(request: HttpRequest) -> Response:
+    """
+    GET /api/frais-options/?faculte=FST&niveau=Licence&specialite=Sciences_Biomedicales&academic_year=2024-2025
+    Retourne les frais complets (inscription, scolarité, kits) pour une faculté, niveau et spécialité.
+    """
+    faculte = request.GET.get("faculte", "").strip().upper()
+    niveau = request.GET.get("niveau", "").strip()
+    specialite = request.GET.get("specialite", "").strip()
+    academic_year = request.GET.get("academic_year", "2024-2025").strip()
+    
+    if not faculte or not niveau or not specialite:
+        return Response(
+            {"detail": "Paramètres 'faculte', 'niveau' et 'specialite' requis."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    # Trouver le programme correspondant
+    programs = Program.objects.filter(
+        faculty__code__iexact=faculte,
+        is_active=True,
+    ).select_related("faculty")
+
+    # Filtrer par niveau et spécialité
+    niveau_keywords = {
+        "Licence": ["LICENCE", "L1", "L2", "L3"],
+        "Master": ["MASTER", "M1", "M2"],
+        "BTS": ["BTS"],
+        "Capacite_Droit": ["CAPACITE"],
+    }
+    
+    keywords = niveau_keywords.get(niveau, [])
+    specialite_upper = specialite.upper().replace("_", " ").replace("-", " ")
+    
+    program = None
+    for p in programs:
+        code_upper = p.code.upper()
+        name_upper = p.name.upper()
+        
+        # Vérifier le niveau
+        has_niveau = any(kw in code_upper or kw in name_upper for kw in keywords)
+        if not has_niveau:
+            continue
+        
+        # Vérifier la spécialité
+        has_specialite = (
+            specialite_upper in code_upper or
+            specialite_upper in name_upper or
+            specialite.replace("_", " ").upper() in name_upper
+        )
+        if has_specialite:
+            program = p
+            break
+
+    if not program:
+        return Response(
+            {"detail": f"Programme introuvable pour {faculte} - {niveau} - {specialite}."},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    # Récupérer les frais depuis le modèle Frais
+    frais = Frais.objects.filter(
+        program=program,
+        academic_year=academic_year,
+    ).first()
+
+    # Si pas de frais dans Frais, essayer depuis academic_rules_json
+    frais_data = None
+    if frais:
+        frais_data = {
+            "inscription": {
+                "iuec": float(frais.inscription_iuec),
+                "tutelle": float(frais.inscription_tutelle),
+                "total": float(frais.inscription_total),
+                "echeance": frais.echeance_inscription.isoformat() if frais.echeance_inscription else None,
+            },
+            "scolarite": {
+                "tranche1": float(frais.scolarite_tranche1),
+                "tranche2": float(frais.scolarite_tranche2),
+                "tranche3": float(frais.scolarite_tranche3) if frais.scolarite_tranche3 else None,
+                "total": float(frais.scolarite_total),
+                "echeances": frais.echeances_scolarite,
+            },
+            "autres": frais.autres_frais or {},
+        }
+    elif program.academic_rules_json and "frais" in program.academic_rules_json:
+        frais_data = program.academic_rules_json["frais"]
+    else:
+        # Valeurs par défaut si aucun frais trouvé
+        frais_data = {
+            "inscription": {
+                "iuec": 0,
+                "tutelle": 0,
+                "total": 0,
+                "echeance": None,
+            },
+            "scolarite": {
+                "tranche1": 0,
+                "tranche2": 0,
+                "tranche3": None,
+                "total": 0,
+                "echeances": [],
+            },
+            "autres": {},
+        }
+
+    # Calculer le total
+    inscription_total = frais_data.get("inscription", {}).get("total", 0)
+    scolarite_total = frais_data.get("scolarite", {}).get("total", 0)
+    autres_total = sum(
+        float(v) if isinstance(v, (int, float, str)) else 0
+        for v in frais_data.get("autres", {}).values()
+    )
+    total_estime = inscription_total + scolarite_total + autres_total
+
+    return Response(
+        {
+            "faculte": faculte,
+            "niveau": niveau,
+            "specialite": specialite,
+            "program_id": str(program.id),
+            "program_code": program.code,
+            "program_name": program.name,
+            "academic_year": academic_year,
+            "frais": frais_data,
+            "total_estime": total_estime,
+        },
+        status=status.HTTP_200_OK,
+    )

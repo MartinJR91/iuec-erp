@@ -136,78 +136,155 @@ class StudentsViewSet(ScopeFilterMixin, ModelViewSet):
 
     def create(self, request: HttpRequest, *args, **kwargs):  # type: ignore[override]
         """
-        POST inscription annuelle : vérifie finance_status avant création.
+        POST inscription annuelle : crée automatiquement l'identité si nécessaire et génère le matricule.
 
         Payload requis:
-        - identity_uuid
-        - matricule_permanent
-        - date_entree
+        - first_name, last_name, email, phone (champs identité)
+        - date_naissance (optionnel, stocké dans metadata)
+        - sexe (optionnel, stocké dans metadata)
         - program_id
         - academic_year_id
         - level
+        - finance_status (optionnel, défaut "OK")
         """
+        from datetime import date
+
         role_active = getattr(request, "role_active", None)
-        if role_active not in {"SCOLARITE", "ADMIN_SI", "RECTEUR"}:
+        if role_active not in {"SCOLARITE", "OPERATOR_SCOLA", "ADMIN_SI", "RECTEUR"}:
             return Response(
-                {"detail": "Création d'inscription réservée à SCOLARITE, ADMIN_SI ou RECTEUR."},
+                {"detail": "Création d'inscription réservée à SCOLARITE, OPERATOR_SCOLA, ADMIN_SI ou RECTEUR."},
                 status=status.HTTP_403_FORBIDDEN,
             )
 
         payload = request.data
-        identity_uuid = payload.get("identity_uuid")
-        matricule_permanent = payload.get("matricule_permanent")
-        date_entree = payload.get("date_entree")
+        
+        # Champs identité requis
+        first_name = payload.get("first_name", "").strip()
+        last_name = payload.get("last_name", "").strip()
+        email = payload.get("email", "").strip().lower()
+        phone = payload.get("phone", "").strip()
+        date_naissance = payload.get("date_naissance")  # Optionnel
+        sexe = payload.get("sexe")  # Optionnel
+        
+        # Champs académiques requis
         program_id = payload.get("program_id")
         academic_year_id = payload.get("academic_year_id")
         level = payload.get("level")
         finance_status = payload.get("finance_status", "OK")
 
         # Vérification des champs requis
-        missing_fields = [
-            field
-            for field in (
-                "identity_uuid",
-                "matricule_permanent",
-                "date_entree",
-                "program_id",
-                "academic_year_id",
-                "level",
-            )
-            if not payload.get(field)
-        ]
+        missing_fields = []
+        if not first_name:
+            missing_fields.append("first_name")
+        if not last_name:
+            missing_fields.append("last_name")
+        if not email:
+            missing_fields.append("email")
+        if not phone:
+            missing_fields.append("phone")
+        if not program_id:
+            missing_fields.append("program_id")
+        if not academic_year_id:
+            missing_fields.append("academic_year_id")
+        if not level:
+            missing_fields.append("level")
+        
         if missing_fields:
             return Response(
                 {"detail": f"Champs requis manquants: {', '.join(missing_fields)}"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Récupération de l'identité
-        try:
-            identity = CoreIdentity.objects.get(id=identity_uuid, is_active=True)
-        except CoreIdentity.DoesNotExist:
+        # Vérification format email
+        if "@" not in email:
             return Response(
-                {"detail": "Identité introuvable."}, status=status.HTTP_404_NOT_FOUND
-            )
-
-        # Vérification du solde financier
-        balance = self._calculate_balance_for_identity(identity.id)
-        if balance > 0:
-            return Response(
-                {
-                    "detail": "Inscription bloquée: solde négatif.",
-                    "balance": float(balance),
-                },
+                {"detail": "Format d'email invalide."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Vérification du statut financier existant
+        # Chercher ou créer l'identité (par email ou téléphone)
+        identity = None
+        if email:
+            identity = CoreIdentity.objects.filter(email__iexact=email, is_active=True).first()
+        if not identity and phone:
+            identity = CoreIdentity.objects.filter(phone=phone, is_active=True).first()
+        
+        # Créer l'identité si elle n'existe pas
+        if not identity:
+            # Vérifier que l'email n'existe pas (même inactif)
+            if CoreIdentity.objects.filter(email__iexact=email).exists():
+                return Response(
+                    {"detail": "Un compte avec cet email existe déjà (inactif)."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            # Vérifier que le téléphone n'existe pas (même inactif)
+            if phone and CoreIdentity.objects.filter(phone=phone).exists():
+                return Response(
+                    {"detail": "Un compte avec ce téléphone existe déjà (inactif)."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            
+            # Créer la nouvelle identité
+            metadata = {}
+            if date_naissance:
+                metadata["date_naissance"] = date_naissance
+            if sexe:
+                metadata["sexe"] = sexe
+            
+            identity = CoreIdentity.objects.create(
+                email=email,
+                phone=phone,
+                first_name=first_name,
+                last_name=last_name,
+                is_active=True,
+                metadata=metadata,
+            )
+        else:
+            # Mettre à jour l'identité existante si nécessaire
+            updated = False
+            if identity.first_name != first_name:
+                identity.first_name = first_name
+                updated = True
+            if identity.last_name != last_name:
+                identity.last_name = last_name
+                updated = True
+            if identity.phone != phone:
+                identity.phone = phone
+                updated = True
+            if date_naissance or sexe:
+                if not identity.metadata:
+                    identity.metadata = {}
+                if date_naissance:
+                    identity.metadata["date_naissance"] = date_naissance
+                if sexe:
+                    identity.metadata["sexe"] = sexe
+                updated = True
+            if updated:
+                identity.save()
+
+        # Vérifier si un profil étudiant existe déjà pour cette identité
         existing_profile = StudentProfile.objects.filter(identity=identity).first()
         if existing_profile:
-            if existing_profile.finance_status == "Bloqué":
+            # Si le profil existe déjà, on peut créer une nouvelle inscription pour une nouvelle année
+            student_profile = existing_profile
+            # Vérifier le statut financier
+            if student_profile.finance_status == "Bloqué":
                 return Response(
                     {
                         "detail": "Inscription impossible : statut financier 'Bloqué'.",
                         "student_id": str(existing_profile.id),
+                        "matricule": existing_profile.matricule_permanent,
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        else:
+            # Vérification du solde financier (seulement si nouveau profil)
+            balance = self._calculate_balance_for_identity(identity.id)
+            if balance > 0:
+                return Response(
+                    {
+                        "detail": "Inscription bloquée: solde négatif.",
+                        "balance": float(balance),
                     },
                     status=status.HTTP_400_BAD_REQUEST,
                 )
@@ -229,23 +306,46 @@ class StudentsViewSet(ScopeFilterMixin, ModelViewSet):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        # Création ou mise à jour du profil étudiant
-        student_profile, created = StudentProfile.objects.get_or_create(
-            identity=identity,
-            defaults={
-                "matricule_permanent": matricule_permanent,
-                "date_entree": date_entree,
-                "current_program": program,
-                "finance_status": finance_status,
-            },
-        )
-        if not created:
-            student_profile.matricule_permanent = matricule_permanent
-            student_profile.date_entree = date_entree
-            student_profile.current_program = program
-            if finance_status != "Bloqué":
+        # Générer le matricule si nouveau profil
+        if not existing_profile:
+            matricule_permanent = StudentProfile.generate_matricule()
+            # Vérifier l'unicité (au cas où deux requêtes simultanées génèrent le même)
+            while StudentProfile.objects.filter(matricule_permanent=matricule_permanent).exists():
+                matricule_permanent = StudentProfile.generate_matricule()
+            
+            # Créer le profil étudiant
+            student_profile = StudentProfile.objects.create(
+                identity=identity,
+                matricule_permanent=matricule_permanent,
+                date_entree=date.today(),
+                current_program=program,
+                finance_status=finance_status,
+            )
+        else:
+            # Mettre à jour le programme si nécessaire
+            if student_profile.current_program != program:
+                student_profile.current_program = program
+            if finance_status != "Bloqué" and student_profile.finance_status != finance_status:
                 student_profile.finance_status = finance_status
             student_profile.save()
+            matricule_permanent = student_profile.matricule_permanent
+
+        # Vérifier si une inscription existe déjà pour cette année
+        existing_registration = RegistrationAdmin.objects.filter(
+            student=student_profile,
+            academic_year=academic_year,
+        ).first()
+        
+        if existing_registration:
+            return Response(
+                {
+                    "detail": "Une inscription existe déjà pour cette année académique.",
+                    "student_id": str(student_profile.id),
+                    "matricule": matricule_permanent,
+                    "registration_id": str(existing_registration.id),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         # Création de l'inscription administrative
         try:
@@ -260,9 +360,27 @@ class StudentsViewSet(ScopeFilterMixin, ModelViewSet):
                 {"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST
             )
 
+        # Log audit
+        actor_email = getattr(request.user, "email", "")
+        SysAuditLog.objects.create(
+            action="STUDENT_ENROLLED",
+            entity_type="STUDENT_PROFILE",
+            entity_id=student_profile.id,
+            actor_email=actor_email,
+            active_role=role_active,
+            payload={
+                "student_id": str(student_profile.id),
+                "matricule": matricule_permanent,
+                "program": program.code,
+                "academic_year": academic_year.code,
+                "level": level,
+            },
+        )
+
         return Response(
             {
-                "detail": "Inscription créée avec succès.",
+                "detail": f"Étudiant créé avec matricule {matricule_permanent}",
+                "matricule": matricule_permanent,
                 "student_id": str(student_profile.id),
                 "registration_id": str(registration.id),
             },

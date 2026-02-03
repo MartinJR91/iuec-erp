@@ -7,6 +7,7 @@ from django.core.exceptions import ValidationError
 from .models import (
     AcademicYear,
     Faculty,
+    Frais,
     Program,
     RegistrationAdmin,
     RegistrationPedagogical,
@@ -134,4 +135,46 @@ class RegistrationPedagogicalAdmin(admin.ModelAdmin):
         "registration_admin__student__matricule_permanent",
         "teaching_unit__code",
         "teaching_unit__name",
+    )
+
+
+@admin.register(Frais)
+class FraisAdmin(admin.ModelAdmin):
+    list_display = (
+        "program",
+        "academic_year",
+        "inscription_total",
+        "scolarite_total",
+        "created_at",
+    )
+    list_filter = ("academic_year", "program__faculty")
+    search_fields = ("program__code", "program__name", "academic_year")
+    readonly_fields = ("created_at", "updated_at")
+    fieldsets = (
+        ("Programme", {"fields": ("program", "academic_year")}),
+        (
+            "Frais d'inscription",
+            {
+                "fields": (
+                    "inscription_iuec",
+                    "inscription_tutelle",
+                    "inscription_total",
+                    "echeance_inscription",
+                )
+            },
+        ),
+        (
+            "Frais de scolarité",
+            {
+                "fields": (
+                    "scolarite_tranche1",
+                    "scolarite_tranche2",
+                    "scolarite_tranche3",
+                    "scolarite_total",
+                    "echeances_scolarite",
+                )
+            },
+        ),
+        ("Autres frais", {"fields": ("autres_frais",)}),
+        ("Métadonnées", {"fields": ("created_at", "updated_at"), "classes": ("collapse",)}),
     )

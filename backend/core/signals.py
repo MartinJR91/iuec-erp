@@ -12,6 +12,7 @@ from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
 
 from apps.academic.models import Grade, RegistrationAdmin, RegistrationPedagogical, StudentProfile
+from apps.academic.services.note_calculator import NoteCalculatorService
 from apps.finance.models import Invoice, Payment
 from identity.models import CoreIdentity, IdentityRoleLink, SysAuditLog
 
@@ -28,21 +29,72 @@ def _get_recteur_email() -> Optional[str]:
 
 
 @receiver(post_save, sender=Grade)
-def log_grade_capture(sender, instance: Grade, created: bool, **kwargs) -> None:
-    if not created:
-        return
+def recalculate_ue_on_grade_save(sender, instance: Grade, created: bool, **kwargs) -> None:
+    """
+    Recalcule la moyenne UE et le statut après sauvegarde d'une note.
+    Log également l'audit avec le rôle actif.
+    """
+    # Récupérer le rôle actif depuis le champ created_by_role ou utiliser une valeur par défaut
+    active_role = instance.created_by_role or "USER_TEACHER"
+    
+    # Log audit
+    actor_email = instance.teacher.email if instance.teacher else ""
+    # entity_id doit être un UUID, on utilise un UUID généré
+    # L'ID de Grade sera stocké dans le payload
+    grade_id = getattr(instance, 'id', None)
     SysAuditLog.objects.create(
         action="JURY_GRADE_CAPTURED",
         entity_type="GRADE",
         entity_id=uuid4(),
-        actor_email=instance.teacher.email if instance.teacher else "",
-        active_role="USER_TEACHER",
+        actor_email=actor_email,
+        active_role=active_role,
         payload={
+            "grade_id": str(grade_id) if grade_id else None,
             "evaluation_id": str(instance.evaluation_id),
             "student_id": str(instance.student_id),
-            "value": str(instance.value),
+            "value": str(instance.value) if instance.value is not None else "Absent",
+            "is_absent": instance.is_absent,
         },
     )
+    
+    # Recalculer la moyenne et le statut pour toutes les inscriptions pédagogiques
+    # de l'étudiant qui concernent l'UE de cette évaluation
+    try:
+        evaluation = instance.evaluation
+        course_element = evaluation.course_element
+        teaching_unit = course_element.teaching_unit
+        
+        if teaching_unit:
+            student = instance.student
+            # Récupérer toutes les inscriptions pédagogiques de l'étudiant pour cette UE
+            registrations = RegistrationPedagogical.objects.filter(
+                registration_admin__student=student,
+                teaching_unit=teaching_unit,
+            )
+            
+            for registration in registrations:
+                # Calculer la nouvelle moyenne
+                moyenne = NoteCalculatorService.calcule_moyenne_ue(registration)
+                
+                # Calculer le nouveau statut
+                statut = NoteCalculatorService.calcule_statut_ue(registration)
+                
+                # Mapper le statut calculé vers les choix du modèle
+                status_mapping = {
+                    "Validée": "Validé",
+                    "Ajourné": "Ajourné",
+                    "Bloquée": "Ajourné",  # Bloquée est traité comme Ajourné
+                }
+                new_status = status_mapping.get(statut, "En cours")
+                
+                # Mettre à jour le statut de l'inscription pédagogique
+                # Utiliser update pour éviter de déclencher le signal à nouveau
+                RegistrationPedagogical.objects.filter(id=registration.id).update(
+                    status=new_status
+                )
+    except Exception:
+        # Ignorer les erreurs pour ne pas bloquer la sauvegarde de la note
+        pass
 
 
 @receiver(post_save, sender=RegistrationPedagogical)

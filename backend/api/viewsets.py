@@ -104,7 +104,7 @@ class ProgramViewSet(viewsets.ModelViewSet):
     def get_queryset(self):  # type: ignore[override]
         queryset = super().get_queryset()
         role_active = getattr(self.request, "role_active", None)
-        if role_active in {"RECTEUR", "ADMIN_SI"}:
+        if role_active in {"RECTEUR", "ADMIN_SI", "OPERATOR_SCOLA", "SCOLARITE"}:
             return queryset
 
         if role_active in {"VALIDATOR_ACAD", "DOYEN"}:

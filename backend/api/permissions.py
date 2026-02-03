@@ -36,25 +36,73 @@ class CoreIdentityPermission(ActiveRolePermission):
         return role_active == "ADMIN_SI"
 
 
-class GradePermission(ActiveRolePermission):
-    """Saisie des notes réservée à USER_TEACHER + scope check basique."""
+class GradesPermission(ActiveRolePermission):
+    """
+    Permission pour la gestion des notes :
+    - SAFE_METHODS : lecture selon scope (TEACHER → ses cours, STUDENT → ses notes, VALIDATOR_ACAD → PV jury)
+    - POST : TEACHER seulement sur ses cours (vérification scope)
+    """
+    
+    def has_permission(self, request: HttpRequest, view) -> bool:  # type: ignore[override]
+        if request.method == "OPTIONS":
+            return True
+        role_active = getattr(request, "role_active", None)
+        if not role_active:
+            return False
+        
+        # SAFE_METHODS : lecture autorisée pour TEACHER, STUDENT, VALIDATOR_ACAD, RECTEUR, ADMIN_SI
+        if request.method in SAFE_METHODS:
+            return role_active in {
+                "USER_TEACHER",
+                "USER_STUDENT",
+                "VALIDATOR_ACAD",
+                "RECTEUR",
+                "ADMIN_SI",
+                "DOYEN",
+            }
+        
+        # POST : seulement TEACHER
+        if request.method == "POST":
+            return role_active == "USER_TEACHER"
+        
+        return False
 
-    allowed_roles = ("USER_TEACHER",)
 
+class JuryClosePermission(ActiveRolePermission):
+    """
+    Permission pour clôturer le PV jury :
+    - VALIDATOR_ACAD seulement
+    - SoD check : pas si impliqué comme étudiant
+    """
+    
+    allowed_roles = ("VALIDATOR_ACAD",)
+    
     def has_permission(self, request: HttpRequest, view) -> bool:  # type: ignore[override]
         if not super().has_permission(request, view):
             return False
-        if request.method in SAFE_METHODS:
-            return True
-        # Scope check simple via header X-Teacher-Scope (liste UE séparées par virgule).
-        scope_header = request.headers.get("X-Teacher-Scope", "")
-        if not scope_header:
-            return False
-        requested_ue = request.data.get("ue_code") if hasattr(request, "data") else None
-        if not requested_ue:
-            return True
-        allowed = {item.strip().upper() for item in scope_header.split(",") if item.strip()}
-        return str(requested_ue).upper() in allowed
+        
+        # SoD check : vérifier que l'utilisateur n'est pas impliqué comme étudiant
+        identity = _get_identity_from_request(request)
+        if identity:
+            # Vérifier si l'identité a un profil étudiant
+            from apps.academic.models import StudentProfile
+            if StudentProfile.objects.filter(identity=identity).exists():
+                # Si oui, vérifier que ce n'est pas pour son propre PV
+                registration_id = request.data.get("registration_id") if hasattr(request, "data") else None
+                if registration_id:
+                    try:
+                        from apps.academic.models import RegistrationPedagogical
+                        registration = RegistrationPedagogical.objects.get(id=registration_id)
+                        if registration.registration_admin.student.identity == identity:
+                            return False  # SoD violation
+                    except RegistrationPedagogical.DoesNotExist:
+                        pass
+        
+        return True
+
+
+# Alias pour compatibilité
+GradePermission = GradesPermission
 
 
 class SoDPermission(BasePermission):
@@ -98,7 +146,7 @@ class FacultyPermission(ActiveRolePermission):
 
 
 class ProgramPermission(ActiveRolePermission):
-    """CRUD programmes: lecture globale RECTEUR/ADMIN_SI, écriture ADMIN_SI/VALIDATOR_ACAD/DOYEN."""
+    """CRUD programmes: lecture globale RECTEUR/ADMIN_SI/OPERATOR_SCOLA/SCOLARITE, écriture ADMIN_SI/VALIDATOR_ACAD/DOYEN."""
 
     def has_permission(self, request: HttpRequest, view) -> bool:  # type: ignore[override]
         if request.method == "OPTIONS":
@@ -107,7 +155,7 @@ class ProgramPermission(ActiveRolePermission):
         if not role_active:
             return False
         if request.method in SAFE_METHODS:
-            return role_active in {"RECTEUR", "ADMIN_SI", "VALIDATOR_ACAD", "DOYEN"}
+            return role_active in {"RECTEUR", "ADMIN_SI", "VALIDATOR_ACAD", "DOYEN", "OPERATOR_SCOLA", "SCOLARITE"}
         return role_active in {"ADMIN_SI", "VALIDATOR_ACAD", "DOYEN"}
 
 
