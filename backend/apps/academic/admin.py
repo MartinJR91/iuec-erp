@@ -6,6 +6,7 @@ from django.core.exceptions import ValidationError
 
 from .models import (
     AcademicYear,
+    Bourse,
     Faculty,
     Frais,
     Program,
@@ -176,5 +177,70 @@ class FraisAdmin(admin.ModelAdmin):
             },
         ),
         ("Autres frais", {"fields": ("autres_frais",)}),
+        ("Métadonnées", {"fields": ("created_at", "updated_at"), "classes": ("collapse",)}),
+    )
+
+
+@admin.register(Bourse)
+class BourseAdmin(admin.ModelAdmin):
+    list_display = (
+        "student",
+        "type_bourse",
+        "montant",
+        "pourcentage",
+        "annee_academique",
+        "statut",
+        "date_attribution",
+        "date_fin_validite",
+    )
+    list_filter = ("type_bourse", "statut", "annee_academique")
+    search_fields = (
+        "student__matricule_permanent",
+        "student__identity__first_name",
+        "student__identity__last_name",
+        "student__identity__email",
+    )
+    readonly_fields = ("date_attribution", "created_at", "updated_at")
+    fieldsets = (
+        (
+            "Étudiant",
+            {
+                "fields": (
+                    "student",
+                    "annee_academique",
+                )
+            },
+        ),
+        (
+            "Bourse",
+            {
+                "fields": (
+                    "type_bourse",
+                    "montant",
+                    "pourcentage",
+                    "statut",
+                )
+            },
+        ),
+        (
+            "Dates",
+            {
+                "fields": (
+                    "date_attribution",
+                    "date_fin_validite",
+                )
+            },
+        ),
+        (
+            "Détails",
+            {
+                "fields": (
+                    "motif",
+                    "accorde_par",
+                    "conditions",
+                    "created_by_role",
+                )
+            },
+        ),
         ("Métadonnées", {"fields": ("created_at", "updated_at"), "classes": ("collapse",)}),
     )

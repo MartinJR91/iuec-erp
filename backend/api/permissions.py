@@ -237,6 +237,203 @@ class StudentPermission(ActiveRolePermission):
 StudentProfilePermission = StudentPermission
 
 
+class MoratoirePermission(ActiveRolePermission):
+    """
+    Permission pour la gestion des moratoires :
+    - create/update : OPERATOR_FINANCE, SCOLARITE, OPERATOR_SCOLA
+    - read : OPERATOR_FINANCE, SCOLARITE, OPERATOR_SCOLA, RECTEUR, USER_STUDENT
+    - delete : ADMIN_SI seulement ou si moratoire non actif
+    """
+
+    def has_permission(self, request: HttpRequest, view) -> bool:  # type: ignore[override]
+        if request.method == "OPTIONS":
+            return True
+        role_active = getattr(request, "role_active", None)
+        if not role_active:
+            return False
+
+        if request.method in SAFE_METHODS:
+            return role_active in {
+                "OPERATOR_FINANCE",
+                "SCOLARITE",
+                "OPERATOR_SCOLA",
+                "RECTEUR",
+                "ADMIN_SI",
+                "USER_STUDENT",
+            }
+
+        if request.method in {"POST", "PUT", "PATCH"}:
+            return role_active in {
+                "OPERATOR_FINANCE",
+                "SCOLARITE",
+                "OPERATOR_SCOLA",
+                "ADMIN_SI",
+            }
+
+        if request.method == "DELETE":
+            return role_active == "ADMIN_SI"
+
+        return False
+
+    def has_object_permission(
+        self, request: HttpRequest, view, obj: "Moratoire"
+    ) -> bool:  # type: ignore[override]
+        """Vérifie l'accès à un objet moratoire spécifique."""
+        role_active = getattr(request, "role_active", None)
+        if not role_active:
+            return False
+
+        # ADMIN_SI a accès total
+        if role_active == "ADMIN_SI":
+            return True
+
+        # USER_STUDENT peut voir uniquement ses propres moratoires
+        if role_active == "USER_STUDENT":
+            from .mixins import _get_identity_from_request
+            identity = _get_identity_from_request(request)
+            if identity and obj.student.identity_id == identity.id:
+                return request.method in SAFE_METHODS
+            return False
+
+        # OPERATOR_FINANCE, SCOLARITE, OPERATOR_SCOLA ont accès en lecture/écriture
+        if role_active in {"OPERATOR_FINANCE", "SCOLARITE", "OPERATOR_SCOLA"}:
+            if request.method == "DELETE":
+                # Peuvent supprimer seulement si non actif
+                return obj.statut != "Actif"
+            return True
+
+        # RECTEUR peut voir tous les moratoires
+        if role_active == "RECTEUR":
+            return request.method in SAFE_METHODS
+
+        return False
+
+
+class BoursePermission(ActiveRolePermission):
+    """
+    Permission pour la gestion des bourses :
+    - create : SCOLARITE, RECTEUR
+    - read : RECTEUR (global), SCOLARITE (attribution), OPERATOR_FINANCE (suivi), USER_STUDENT (ses bourses)
+    - update/delete : RECTEUR, ADMIN_SI
+    """
+
+    def has_permission(self, request: HttpRequest, view) -> bool:  # type: ignore[override]
+        if request.method == "OPTIONS":
+            return True
+        role_active = getattr(request, "role_active", None)
+        if not role_active:
+            return False
+
+        if request.method in SAFE_METHODS:
+            return role_active in {
+                "RECTEUR",
+                "SCOLARITE",
+                "OPERATOR_FINANCE",
+                "USER_STUDENT",
+                "ADMIN_SI",
+            }
+
+        if request.method == "POST":
+            return role_active in {"SCOLARITE", "RECTEUR", "ADMIN_SI"}
+
+        if request.method in {"PUT", "PATCH"}:
+            return role_active in {"RECTEUR", "ADMIN_SI"}
+
+        if request.method == "DELETE":
+            return role_active == "ADMIN_SI"
+
+        return False
+
+    def has_object_permission(
+        self, request: HttpRequest, view, obj: "Bourse"
+    ) -> bool:  # type: ignore[override]
+        """Vérifie l'accès à un objet bourse spécifique."""
+        role_active = getattr(request, "role_active", None)
+        if not role_active:
+            return False
+
+        # ADMIN_SI a accès total
+        if role_active == "ADMIN_SI":
+            return True
+
+        # RECTEUR a accès en lecture/écriture
+        if role_active == "RECTEUR":
+            return True
+
+        # USER_STUDENT peut voir uniquement ses propres bourses
+        if role_active == "USER_STUDENT":
+            identity = _get_identity_from_request(request)
+            if identity and obj.student.identity_id == identity.id:
+                return request.method in SAFE_METHODS
+            return False
+
+        # SCOLARITE et OPERATOR_FINANCE ont accès en lecture
+        if role_active in {"SCOLARITE", "OPERATOR_FINANCE"}:
+            return request.method in SAFE_METHODS
+
+        return False
+
+
+class UserStudentPermission(BasePermission):
+    """
+    Permission stricte pour USER_STUDENT :
+    - SAFE_METHODS → lecture uniquement si self (uuid match)
+    - Toute autre méthode → 403 "Accès réservé aux rôles administratifs"
+    - Bloque explicitement actions interdites même si rôle cumulé (SoD prioritaire)
+    """
+
+    def has_permission(self, request: HttpRequest, view) -> bool:  # type: ignore[override]
+        if request.method == "OPTIONS":
+            return True
+        role_active = getattr(request, "role_active", None)
+        
+        # Si ce n'est pas USER_STUDENT, laisser les autres permissions gérer
+        if role_active != "USER_STUDENT":
+            return True
+        
+        # USER_STUDENT : seulement SAFE_METHODS
+        if request.method in SAFE_METHODS:
+            return True
+        
+        # Toute autre méthode → bloquée
+        return False
+
+    def has_object_permission(
+        self, request: HttpRequest, view, obj
+    ) -> bool:  # type: ignore[override]
+        """Vérifie l'accès à un objet spécifique pour USER_STUDENT."""
+        role_active = getattr(request, "role_active", None)
+        
+        # Si ce n'est pas USER_STUDENT, laisser les autres permissions gérer
+        if role_active != "USER_STUDENT":
+            return True
+        
+        # USER_STUDENT : seulement lecture de ses propres données
+        identity = _get_identity_from_request(request)
+        if not identity:
+            return False
+        
+        # Vérifier si l'objet appartient à l'étudiant
+        if hasattr(obj, "identity_id"):
+            # Pour StudentProfile
+            if obj.identity_id == identity.id:
+                return request.method in SAFE_METHODS
+        elif hasattr(obj, "student") and hasattr(obj.student, "identity_id"):
+            # Pour RegistrationAdmin, Bourse, Moratoire, etc.
+            if obj.student.identity_id == identity.id:
+                return request.method in SAFE_METHODS
+        elif hasattr(obj, "identity_uuid"):
+            # Pour Invoice, Payment
+            if str(obj.identity_uuid) == str(identity.id):
+                return request.method in SAFE_METHODS
+        elif hasattr(obj, "registration_admin") and hasattr(obj.registration_admin, "student"):
+            # Pour RegistrationPedagogical, Grade
+            if obj.registration_admin.student.identity_id == identity.id:
+                return request.method in SAFE_METHODS
+        
+        return False
+
+
 def _get_identity_from_request(request: HttpRequest):
     """Récupère l'identité depuis la requête."""
     from identity.models import CoreIdentity

@@ -11,7 +11,7 @@ from django.db.models import Sum
 from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
 
-from apps.academic.models import Grade, RegistrationAdmin, RegistrationPedagogical, StudentProfile
+from apps.academic.models import Grade, Moratoire, RegistrationAdmin, RegistrationPedagogical, StudentProfile
 from apps.academic.services.note_calculator import NoteCalculatorService
 from apps.finance.models import Invoice, Payment
 from identity.models import CoreIdentity, IdentityRoleLink, SysAuditLog
@@ -135,6 +135,21 @@ def validate_registration_finance_status(
     # Vérifie aussi le statut du profil étudiant
     if instance.student and instance.student.finance_status == "Bloqué":
         raise ValidationError("Inscription impossible : étudiant bloqué")
+    
+    # Vérifier si solde < 0 et tranche 1 due
+    if instance.student:
+        from apps.academic.services.frais_echeance_calculator import FraisEcheanceCalculator
+        from django.utils import timezone
+        
+        calculator = FraisEcheanceCalculator()
+        echeances = calculator.calculer_echeances(instance.student, date_reference=timezone.now().date())
+        
+        # Si solde négatif et tranche 1 due, bloquer l'inscription
+        if echeances["montant_du"] > 0:
+            # Trouver la tranche 1
+            tranche1 = next((t for t in echeances["tranches"] if t.get("type") == "scolarite" and "Tranche 1" in t.get("label", "")), None)
+            if tranche1 and tranche1.get("due") and not tranche1.get("payee"):
+                raise ValidationError("Inscription bloquée : échéance non respectée (Tranche 1 due)")
 
 
 def _calculate_student_balance(identity_uuid) -> Decimal:
@@ -159,17 +174,10 @@ def update_student_balance_on_invoice(sender, instance: Invoice, **kwargs) -> No
     """Recalcule le solde de l'étudiant après création/modification d'une facture."""
     try:
         student_profile = StudentProfile.objects.get(identity_id=instance.identity_uuid)
-        balance = _calculate_student_balance(instance.identity_uuid)
-        new_finance_status = student_profile.finance_status
-        # Met à jour finance_status si solde < 0
-        if balance < 0:
-            new_finance_status = "Bloqué"
-        elif balance == 0 and student_profile.finance_status == "Bloqué":
-            new_finance_status = "OK"
-        # Utilise update_fields pour éviter de déclencher le signal à nouveau
-        StudentProfile.objects.filter(id=student_profile.id).update(
-            solde=balance, finance_status=new_finance_status
-        )
+        from apps.academic.services.frais_echeance_calculator import FraisEcheanceCalculator
+        
+        calculator = FraisEcheanceCalculator()
+        calculator.update_solde_etudiant(student_profile)
     except StudentProfile.DoesNotExist:
         pass
 
@@ -180,17 +188,10 @@ def update_student_balance_on_payment(sender, instance: Payment, **kwargs) -> No
     try:
         identity_uuid = instance.invoice.identity_uuid
         student_profile = StudentProfile.objects.get(identity_id=identity_uuid)
-        balance = _calculate_student_balance(identity_uuid)
-        new_finance_status = student_profile.finance_status
-        # Met à jour finance_status si solde < 0
-        if balance < 0:
-            new_finance_status = "Bloqué"
-        elif balance == 0 and student_profile.finance_status == "Bloqué":
-            new_finance_status = "OK"
-        # Utilise update_fields pour éviter de déclencher le signal à nouveau
-        StudentProfile.objects.filter(id=student_profile.id).update(
-            solde=balance, finance_status=new_finance_status
-        )
+        from apps.academic.services.frais_echeance_calculator import FraisEcheanceCalculator
+        
+        calculator = FraisEcheanceCalculator()
+        calculator.update_solde_etudiant(student_profile)
     except StudentProfile.DoesNotExist:
         pass
 
@@ -229,3 +230,72 @@ def notify_sod_alert(sender, instance: SysAuditLog, created: bool, **kwargs) -> 
         active_role=instance.active_role,
         payload={"source": "signal", "original_action": instance.action},
     )
+
+
+@receiver(post_save, sender=Moratoire)
+def handle_moratoire_status_change(sender, instance: Moratoire, created: bool, **kwargs) -> None:
+    """
+    Gère les changements de statut d'un moratoire.
+    - Si créé → met finance_status = 'Moratoire' sur STUDENT_PROFILE
+    - Si date_fin dépassée → statut = 'Dépassé', finance_status = 'Bloqué' (si solde <0)
+    """
+    from django.utils import timezone
+    from apps.academic.services.frais_echeance_calculator import FraisEcheanceCalculator
+
+    student = instance.student
+
+    if created:
+        # Nouveau moratoire : mettre le statut financier à 'Moratoire'
+        student.finance_status = "Moratoire"
+        student.save(update_fields=["finance_status"])
+
+        # Log audit
+        actor_email = getattr(instance.accorde_par, "email", "")
+        SysAuditLog.objects.create(
+            action="MORATOIRE_ACCORDE",
+            entity_type="MORATOIRE",
+            entity_id=instance.id,
+            actor_email=actor_email,
+            active_role=instance.created_by_role,
+            payload={
+                "student_id": str(student.id),
+                "matricule": student.matricule_permanent,
+                "montant_reporte": float(instance.montant_reporte),
+                "duree_jours": instance.duree_jours,
+                "date_fin": instance.date_fin.isoformat(),
+                "motif": instance.motif,
+            },
+        )
+    else:
+        # Vérifier si la date de fin est dépassée (seulement si le statut est encore Actif)
+        today = timezone.now().date()
+        if instance.date_fin < today and instance.statut == Moratoire.StatutChoices.ACTIF:
+            # Mettre à jour le statut sans déclencher à nouveau le signal
+            Moratoire.objects.filter(id=instance.id).update(statut=Moratoire.StatutChoices.DEPASSE)
+            instance.refresh_from_db()
+
+            # Si solde < 0, mettre finance_status à 'Bloqué'
+            calculator = FraisEcheanceCalculator()
+            calculator.update_solde_etudiant(student)
+
+            # Si le solde est toujours négatif après recalcul, bloquer
+            student.refresh_from_db()
+            if student.solde < 0:
+                student.finance_status = "Bloqué"
+                student.save(update_fields=["finance_status"])
+
+            # Log audit
+            actor_email = getattr(instance.accorde_par, "email", "")
+            SysAuditLog.objects.create(
+                action="MORATOIRE_DEPASSE",
+                entity_type="MORATOIRE",
+                entity_id=instance.id,
+                actor_email=actor_email,
+                active_role=instance.created_by_role,
+                payload={
+                    "student_id": str(student.id),
+                    "matricule": student.matricule_permanent,
+                    "date_fin": instance.date_fin.isoformat(),
+                    "nouveau_statut": "Dépassé",
+                },
+            )

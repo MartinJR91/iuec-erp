@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import timedelta
 from decimal import Decimal
 from uuid import UUID
 
@@ -7,19 +8,20 @@ from django.core.exceptions import ValidationError
 from django.db.models import DecimalField, F, OuterRef, Q, Subquery, Sum, Value
 from django.db.models.functions import Coalesce
 from django.http import HttpRequest
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated, SAFE_METHODS
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
 
-from apps.academic.models import AcademicYear, Program, RegistrationAdmin, StudentProfile
+from apps.academic.models import AcademicYear, Bourse, Moratoire, Program, RegistrationAdmin, StudentProfile
 from apps.finance.models import Invoice, Payment
 from identity.models import CoreIdentity, SysAuditLog
 
 from .mixins import ScopeFilterMixin, _get_identity_from_request
-from .permissions import SoDPermission, StudentPermission
-from .serializers import RegistrationAdminSerializer, StudentProfileSerializer
+from .permissions import BoursePermission, SoDPermission, StudentPermission, UserStudentPermission
+from .serializers import BourseCreateSerializer, BourseSerializer, MoratoireSerializer, RegistrationAdminSerializer, StudentProfileSerializer
 
 
 class StudentsViewSet(ScopeFilterMixin, ModelViewSet):
@@ -35,7 +37,7 @@ class StudentsViewSet(ScopeFilterMixin, ModelViewSet):
 
     queryset = StudentProfile.objects.all()
     serializer_class = StudentProfileSerializer
-    permission_classes = [IsAuthenticated, StudentPermission, SoDPermission]
+    permission_classes = [IsAuthenticated, UserStudentPermission, StudentPermission, SoDPermission]
 
     def get_queryset(self):  # type: ignore[override]
         """
@@ -81,6 +83,15 @@ class StudentsViewSet(ScopeFilterMixin, ModelViewSet):
         ).annotate(
             calculated_balance=F("total_invoices") - F("total_payments")
         )
+
+        # USER_STUDENT : seulement son propre profil
+        if role_active == "USER_STUDENT":
+            identity = _get_identity_from_request(self.request)
+            if identity:
+                queryset = queryset.filter(identity=identity)
+            else:
+                queryset = queryset.none()
+            return queryset
 
         # Utilise le mixin pour filtrer par scope
         queryset = self.filter_by_scope(queryset)
@@ -133,6 +144,36 @@ class StudentsViewSet(ScopeFilterMixin, ModelViewSet):
             },
             status=status.HTTP_200_OK,
         )
+
+    def update(self, request: HttpRequest, *args, **kwargs):  # type: ignore[override]
+        """PUT : bloqué pour USER_STUDENT."""
+        role_active = getattr(request, "role_active", None)
+        if role_active == "USER_STUDENT":
+            return Response(
+                {"detail": "Accès réservé aux rôles administratifs. Vous ne pouvez pas modifier votre profil."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        return super().update(request, *args, **kwargs)
+
+    def partial_update(self, request: HttpRequest, *args, **kwargs):  # type: ignore[override]
+        """PATCH : bloqué pour USER_STUDENT."""
+        role_active = getattr(request, "role_active", None)
+        if role_active == "USER_STUDENT":
+            return Response(
+                {"detail": "Accès réservé aux rôles administratifs. Vous ne pouvez pas modifier votre profil."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        return super().partial_update(request, *args, **kwargs)
+
+    def destroy(self, request: HttpRequest, *args, **kwargs):  # type: ignore[override]
+        """DELETE : bloqué pour USER_STUDENT."""
+        role_active = getattr(request, "role_active", None)
+        if role_active == "USER_STUDENT":
+            return Response(
+                {"detail": "Accès réservé aux rôles administratifs."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        return super().destroy(request, *args, **kwargs)
 
     def create(self, request: HttpRequest, *args, **kwargs):  # type: ignore[override]
         """
@@ -582,3 +623,288 @@ class StudentsViewSet(ScopeFilterMixin, ModelViewSet):
         if balance > 0:
             return "Bloqué"
         return "OK"
+
+    @action(
+        detail=True,
+        methods=["GET"],
+        url_path="echeances",
+    )
+    def get_echeances(self, request: HttpRequest, pk=None, *args, **kwargs):  # type: ignore[override]
+        """
+        GET /api/students/<uuid>/echeances/ : Récupère les échéances de frais d'un étudiant.
+        
+        Retourne les tranches, montant dû, prochaine échéance, statut et jours de retard.
+        """
+        student = self.get_object()
+        
+        from apps.academic.services.frais_echeance_calculator import FraisEcheanceCalculator
+        from django.utils import timezone
+        
+        calculator = FraisEcheanceCalculator()
+        date_reference = request.GET.get("date_reference")
+        if date_reference:
+            try:
+                from datetime import datetime
+                date_reference = datetime.fromisoformat(date_reference).date()
+            except (ValueError, TypeError):
+                date_reference = timezone.now().date()
+        else:
+            date_reference = timezone.now().date()
+        
+        echeances = calculator.calculer_echeances(student, date_reference=date_reference)
+        
+        return Response(echeances, status=status.HTTP_200_OK)
+
+    @action(
+        detail=True,
+        methods=["POST"],
+        url_path="moratoire",
+    )
+    def create_moratoire(self, request: HttpRequest, pk=None, *args, **kwargs):  # type: ignore[override]
+        """
+        POST /api/students/<uuid>/moratoire/ : Crée un moratoire pour un étudiant.
+        
+        Réservé à OPERATOR_FINANCE, SCOLARITE, OPERATOR_SCOLA.
+        Input: montant_reporte, duree_jours, motif (optionnel)
+        """
+        role_active = getattr(request, "role_active", None)
+        if role_active not in {"OPERATOR_FINANCE", "SCOLARITE", "OPERATOR_SCOLA", "ADMIN_SI"}:
+            return Response(
+                {"detail": "Accès réservé à OPERATOR_FINANCE, SCOLARITE, OPERATOR_SCOLA ou ADMIN_SI."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        student = self.get_object()
+        identity = _get_identity_from_request(request)
+
+        if not identity:
+            return Response(
+                {"detail": "Identité introuvable."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # SoD : OPERATOR_FINANCE ne peut pas s'accorder moratoire à soi-même
+        if role_active == "OPERATOR_FINANCE" and student.identity_id == identity.id:
+            return Response(
+                {"detail": "SoD: impossible de s'accorder un moratoire à soi-même."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # Validation des champs
+        montant_reporte = request.data.get("montant_reporte")
+        duree_jours = request.data.get("duree_jours", 30)
+        motif = request.data.get("motif", "")
+
+        if not montant_reporte:
+            return Response(
+                {"detail": "Champ 'montant_reporte' requis."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            montant_reporte = Decimal(str(montant_reporte))
+            duree_jours = int(duree_jours)
+        except (ValueError, TypeError):
+            return Response(
+                {"detail": "Format invalide pour montant_reporte ou duree_jours."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Vérifier que le montant ne dépasse pas le solde
+        if montant_reporte > abs(student.solde):
+            return Response(
+                {
+                    "detail": f"Le montant reporté ({montant_reporte}) ne peut pas dépasser le solde de l'étudiant ({abs(student.solde)})."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Calculer date_fin
+        date_fin = timezone.now().date() + timedelta(days=duree_jours)
+
+        # Créer le moratoire
+        from apps.academic.models import Moratoire
+
+        try:
+            moratoire = Moratoire.objects.create(
+                student=student,
+                montant_reporte=montant_reporte,
+                duree_jours=duree_jours,
+                date_fin=date_fin,
+                motif=motif,
+                accorde_par=identity,
+                created_by_role=role_active or "",
+            )
+        except ValidationError as e:
+            return Response(
+                {"detail": str(e)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = MoratoireSerializer(moratoire)
+        return Response(
+            {
+                "detail": "Moratoire créé avec succès.",
+                "moratoire": serializer.data,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+    @action(
+        detail=True,
+        methods=["GET"],
+        url_path="moratoires-actifs",
+    )
+    def get_moratoires_actifs(self, request: HttpRequest, pk=None, *args, **kwargs):  # type: ignore[override]
+        """
+        GET /api/students/<uuid>/moratoires-actifs/ : Retourne les moratoires actifs d'un étudiant.
+        
+        Retourne uniquement les moratoires non dépassés (statut = 'Actif' ou 'Respecté').
+        """
+        student = self.get_object()
+        
+        from apps.academic.models import Moratoire
+        
+        moratoires = Moratoire.objects.filter(
+            student=student,
+            statut__in=["Actif", "Respecté"],
+        ).select_related("accorde_par").order_by("-date_accord")
+        
+        serializer = MoratoireSerializer(moratoires, many=True)
+        return Response(
+            {
+                "student_id": str(student.id),
+                "matricule": student.matricule_permanent,
+                "moratoires": serializer.data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @action(
+        detail=True,
+        methods=["POST"],
+        url_path="bourse",
+    )
+    def create_bourse(self, request: HttpRequest, pk=None, *args, **kwargs):  # type: ignore[override]
+        """
+        POST /api/students/<uuid>/bourse/ : Crée une bourse pour un étudiant.
+        
+        Réservé à SCOLARITE/RECTEUR.
+        Input : type_bourse, montant (ou pourcentage), motif, annee_academique, date_fin_validite
+        """
+        student = self.get_object()
+        role_active = getattr(request, "role_active", None)
+        identity = _get_identity_from_request(request)
+
+        if not identity:
+            return Response(
+                {"detail": "Identité introuvable."},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        # Vérifier les permissions
+        if role_active not in {"SCOLARITE", "RECTEUR", "ADMIN_SI"}:
+            return Response(
+                {"detail": "Accès réservé à SCOLARITE, RECTEUR ou ADMIN_SI."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # SoD : SCOLARITE ne peut pas s'accorder bourse à soi-même
+        if role_active == "SCOLARITE" and student.identity_id == identity.id:
+            return Response(
+                {"detail": "SoD: impossible de s'accorder une bourse à soi-même."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # Valider les données
+        serializer = BourseCreateSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(
+                serializer.errors,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        validated_data = serializer.validated_data
+
+        # Calculer le montant si pourcentage fourni
+        montant = validated_data.get("montant")
+        pourcentage = validated_data.get("pourcentage")
+        
+        if pourcentage and not montant:
+            # Si pourcentage fourni sans montant, calculer depuis les frais du programme
+            from apps.finance.models import Invoice
+            total_factures = (
+                Invoice.objects.filter(identity_uuid=student.identity_id)
+                .aggregate(total=Sum("total_amount"))["total"]
+                or Decimal("0")
+            )
+            montant = total_factures * (pourcentage / Decimal("100"))
+
+        if not montant:
+            return Response(
+                {"detail": "Impossible de calculer le montant. Fournissez 'montant' ou 'pourcentage' avec des factures existantes."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Créer la bourse
+        try:
+            bourse = Bourse.objects.create(
+                student=student,
+                type_bourse=validated_data["type_bourse"],
+                montant=montant,
+                pourcentage=pourcentage,
+                annee_academique=validated_data["annee_academique"],
+                date_fin_validite=validated_data.get("date_fin_validite"),
+                motif=validated_data.get("motif", ""),
+                conditions=validated_data.get("conditions", {}),
+                accorde_par=identity,
+                created_by_role=role_active or "",
+                statut=Bourse.StatutChoices.ACTIVE,
+            )
+        except ValidationError as e:
+            return Response(
+                {"detail": str(e)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Le signal post_save va recalculer le solde automatiquement
+
+        serializer_response = BourseSerializer(bourse)
+        return Response(
+            {
+                "detail": "Bourse créée avec succès.",
+                "bourse": serializer_response.data,
+                "student_solde_apres": str(student.solde),
+                "student_finance_status": student.finance_status,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+    @action(
+        detail=True,
+        methods=["GET"],
+        url_path="bourses-actives",
+    )
+    def get_bourses_actives(self, request: HttpRequest, pk=None, *args, **kwargs):  # type: ignore[override]
+        """
+        GET /api/students/<uuid>/bourses-actives/ : Retourne les bourses actives d'un étudiant.
+        
+        Retourne uniquement les bourses non terminées (statut = 'Active' ou 'Suspendue').
+        """
+        student = self.get_object()
+        
+        bourses = Bourse.objects.filter(
+            student=student,
+            statut__in=[Bourse.StatutChoices.ACTIVE, Bourse.StatutChoices.SUSPENDUE],
+        ).select_related("accorde_par", "annee_academique").order_by("-date_attribution")
+        
+        serializer = BourseSerializer(bourses, many=True)
+        return Response(
+            {
+                "student_id": str(student.id),
+                "matricule": student.matricule_permanent,
+                "bourses": serializer.data,
+                "total_bourses_actives": bourses.aggregate(total=Sum("montant"))["total"] or Decimal("0"),
+            },
+            status=status.HTTP_200_OK,
+        )

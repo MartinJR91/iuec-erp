@@ -23,7 +23,12 @@ const AppWithTheme: React.FC = () => {
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline enableColorScheme />
-      <BrowserRouter>
+      <BrowserRouter
+        future={{
+          v7_startTransition: true,
+          v7_relativeSplatPath: true,
+        }}
+      >
         <AuthProvider>
           <App />
         </AuthProvider>

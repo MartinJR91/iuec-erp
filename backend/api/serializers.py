@@ -3,15 +3,19 @@ from __future__ import annotations
 from rest_framework import serializers
 
 from apps.academic.models import (
+    AcademicYear,
+    Bourse,
     CourseElement,
     Evaluation,
     Faculty,
     Grade,
     GradeEntry,
+    Moratoire,
     Program,
     RegistrationAdmin,
     RegistrationPedagogical,
     StudentProfile,
+    StudentRequest,
     TeachingUnit,
     validate_academic_rules,
 )
@@ -276,3 +280,175 @@ class BulkGradeSerializer(serializers.Serializer):
     student_id = serializers.IntegerField()
     value = serializers.DecimalField(max_digits=5, decimal_places=2, required=False, allow_null=True)
     is_absent = serializers.BooleanField(default=False)
+
+
+class MoratoireSerializer(serializers.ModelSerializer):
+    """Serializer pour Moratoire."""
+    
+    student_matricule = serializers.CharField(source="student.matricule_permanent", read_only=True)
+    student_nom = serializers.SerializerMethodField()
+    accorde_par_email = serializers.CharField(source="accorde_par.email", read_only=True)
+    
+    def get_student_nom(self, obj) -> str:
+        """Retourne le nom complet de l'étudiant."""
+        if obj.student and obj.student.identity:
+            return f"{obj.student.identity.last_name} {obj.student.identity.first_name}"
+        return ""
+    
+    class Meta:
+        model = Moratoire
+        fields = (
+            "id",
+            "student",
+            "student_matricule",
+            "student_nom",
+            "montant_reporte",
+            "date_accord",
+            "date_fin",
+            "duree_jours",
+            "motif",
+            "accorde_par",
+            "accorde_par_email",
+            "statut",
+            "created_by_role",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = ("id", "date_accord", "created_at", "updated_at", "student_matricule", "student_nom", "accorde_par_email")
+
+
+class BourseSerializer(serializers.ModelSerializer):
+    """Serializer pour Bourse."""
+    
+    student_matricule = serializers.CharField(source="student.matricule_permanent", read_only=True)
+    student_nom = serializers.SerializerMethodField()
+    accorde_par_email = serializers.CharField(source="accorde_par.email", read_only=True)
+    annee_academique_code = serializers.CharField(source="annee_academique.code", read_only=True)
+    annee_academique_label = serializers.CharField(source="annee_academique.label", read_only=True)
+    
+    def get_student_nom(self, obj) -> str:
+        """Retourne le nom complet de l'étudiant."""
+        if obj.student and obj.student.identity:
+            return f"{obj.student.identity.last_name} {obj.student.identity.first_name}"
+        return ""
+    
+    class Meta:
+        model = Bourse
+        fields = (
+            "id",
+            "student",
+            "student_matricule",
+            "student_nom",
+            "type_bourse",
+            "montant",
+            "pourcentage",
+            "annee_academique",
+            "annee_academique_code",
+            "annee_academique_label",
+            "date_attribution",
+            "date_fin_validite",
+            "motif",
+            "accorde_par",
+            "accorde_par_email",
+            "statut",
+            "conditions",
+            "created_by_role",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = (
+            "id",
+            "date_attribution",
+            "created_at",
+            "updated_at",
+            "student_matricule",
+            "student_nom",
+            "accorde_par_email",
+            "annee_academique_code",
+            "annee_academique_label",
+        )
+
+
+class BourseCreateSerializer(serializers.Serializer):
+    """Serializer pour la création d'une bourse via POST /api/students/<uuid>/bourse/."""
+    
+    type_bourse = serializers.ChoiceField(choices=Bourse.TypeBourse.choices)
+    montant = serializers.DecimalField(max_digits=12, decimal_places=2, required=False)
+    pourcentage = serializers.DecimalField(max_digits=5, decimal_places=2, required=False, allow_null=True)
+    annee_academique = serializers.PrimaryKeyRelatedField(queryset=AcademicYear.objects.all())
+    date_fin_validite = serializers.DateField(required=False, allow_null=True)
+    motif = serializers.CharField(required=False, allow_blank=True)
+    conditions = serializers.JSONField(required=False, default=dict)
+    
+    def validate(self, attrs):  # type: ignore[override]
+        """Valide que montant ou pourcentage est fourni."""
+        montant = attrs.get("montant")
+        pourcentage = attrs.get("pourcentage")
+        
+        if not montant and not pourcentage:
+            raise serializers.ValidationError("Il faut fournir soit 'montant' soit 'pourcentage'.")
+        
+        if montant and montant <= 0:
+            raise serializers.ValidationError("Le montant doit être supérieur à 0.")
+        
+        if pourcentage and (pourcentage <= 0 or pourcentage > 100):
+            raise serializers.ValidationError("Le pourcentage doit être entre 0 et 100.")
+        
+        return attrs
+
+
+class StudentRequestSerializer(serializers.ModelSerializer):
+    """Serializer pour StudentRequest."""
+
+    student_matricule = serializers.CharField(source="student.matricule_permanent", read_only=True)
+    student_nom = serializers.SerializerMethodField()
+    traite_par_email = serializers.CharField(source="traite_par.email", read_only=True)
+
+    def get_student_nom(self, obj) -> str:
+        """Retourne le nom complet de l'étudiant."""
+        if obj.student and obj.student.identity:
+            return f"{obj.student.identity.last_name} {obj.student.identity.first_name}"
+        return ""
+
+    class Meta:
+        model = StudentRequest
+        fields = (
+            "id",
+            "student",
+            "student_matricule",
+            "student_nom",
+            "type_demande",
+            "motif",
+            "piece_jointe",
+            "statut",
+            "reponse",
+            "traite_par",
+            "traite_par_email",
+            "date_traitement",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = (
+            "id",
+            "statut",
+            "reponse",
+            "traite_par",
+            "traite_par_email",
+            "date_traitement",
+            "created_at",
+            "updated_at",
+            "student_matricule",
+            "student_nom",
+        )
+
+
+class StudentRequestCreateSerializer(serializers.ModelSerializer):
+    """Serializer pour la création de StudentRequest par l'étudiant."""
+
+    class Meta:
+        model = StudentRequest
+        fields = (
+            "type_demande",
+            "motif",
+            "piece_jointe",
+        )

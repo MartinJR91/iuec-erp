@@ -22,7 +22,7 @@ from identity.models import CoreIdentity, SysAuditLog
 from uuid import uuid4
 
 from .mixins import _get_identity_from_request
-from .permissions import GradesPermission, JuryClosePermission
+from .permissions import GradesPermission, JuryClosePermission, UserStudentPermission
 from .serializers import BulkGradeSerializer, GradeSerializer
 
 
@@ -42,7 +42,7 @@ class GradesViewSet(viewsets.ModelViewSet):
         "teacher",
     )
     serializer_class = GradeSerializer
-    permission_classes = [IsAuthenticated, GradesPermission]
+    permission_classes = [IsAuthenticated, UserStudentPermission, GradesPermission]
     
     def get_queryset(self):  # type: ignore[override]
         """Filtre le queryset selon le rôle actif."""
@@ -118,6 +118,10 @@ class GradesViewSet(viewsets.ModelViewSet):
         return queryset.none()
     
     def perform_create(self, serializer):  # type: ignore[override]
+        """Bloqué pour USER_STUDENT."""
+        role_active = getattr(self.request, "role_active", None)
+        if role_active == "USER_STUDENT":
+            raise PermissionDenied("Accès réservé aux rôles administratifs. Vous ne pouvez pas créer de notes.")
         """Sauvegarde une note avec le rôle actif."""
         role_active = getattr(self.request, "role_active", None)
         identity = _get_identity_from_request(self.request)
@@ -144,6 +148,27 @@ class GradesViewSet(viewsets.ModelViewSet):
             created_by_role=role_active or "",
         )
     
+    def update(self, request: HttpRequest, *args, **kwargs):  # type: ignore[override]
+        """PUT : bloqué pour USER_STUDENT."""
+        role_active = getattr(request, "role_active", None)
+        if role_active == "USER_STUDENT":
+            raise PermissionDenied("Accès réservé aux rôles administratifs. Vous ne pouvez pas modifier les notes.")
+        return super().update(request, *args, **kwargs)
+
+    def partial_update(self, request: HttpRequest, *args, **kwargs):  # type: ignore[override]
+        """PATCH : bloqué pour USER_STUDENT."""
+        role_active = getattr(request, "role_active", None)
+        if role_active == "USER_STUDENT":
+            raise PermissionDenied("Accès réservé aux rôles administratifs. Vous ne pouvez pas modifier les notes.")
+        return super().partial_update(request, *args, **kwargs)
+
+    def destroy(self, request: HttpRequest, *args, **kwargs):  # type: ignore[override]
+        """DELETE : bloqué pour USER_STUDENT."""
+        role_active = getattr(request, "role_active", None)
+        if role_active == "USER_STUDENT":
+            raise PermissionDenied("Accès réservé aux rôles administratifs.")
+        return super().destroy(request, *args, **kwargs)
+
     @action(detail=False, methods=["post"], url_path="bulk-update")
     def bulk_update(self, request: HttpRequest) -> Response:
         """

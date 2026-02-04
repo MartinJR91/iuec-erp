@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import axios, { AxiosError } from "axios";
+import toast from "react-hot-toast";
 import { UserRole } from "../context/AuthContext";
 import api from "../services/api";
 
@@ -13,6 +14,13 @@ export interface DashboardData {
       facultyCode: string;
       students: number;
     }>;
+    // KPIs pour SCOLARITE
+    totalStudents?: number;
+    totalRegistrations?: number;
+    registrationsThisYear?: number;
+    // KPIs pour Notes (RECTEUR)
+    ueValidatedPercent?: number;
+    studentsWithDebtPercent?: number;
   };
   graph?: Array<{
     month: string;

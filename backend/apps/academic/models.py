@@ -3,12 +3,15 @@ from __future__ import annotations
 
 from typing import Any, Dict
 from decimal import Decimal
+from datetime import date
+from uuid import uuid4
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models.signals import post_save
 from django.dispatch import receiver
+from django.utils import timezone
 
-from identity.models import CoreIdentity
+from identity.models import CoreIdentity, SysAuditLog
 
 
 def validate_academic_rules(value: Dict[str, Any]) -> None:
@@ -483,6 +486,282 @@ class Frais(models.Model):
         return f"{self.program.code} - {self.academic_year}"
 
 
+class Moratoire(models.Model):
+    """MORATOIRE - Moratoire accordé à un étudiant pour reporter le paiement."""
+
+    class DureeChoices(models.IntegerChoices):
+        JOURS_30 = 30, "30 jours"
+        JOURS_60 = 60, "60 jours"
+        JOURS_90 = 90, "90 jours"
+
+    class StatutChoices(models.TextChoices):
+        ACTIF = "Actif", "Actif"
+        RESPECTE = "Respecté", "Respecté"
+        DEPASSE = "Dépassé", "Dépassé"
+
+    student = models.ForeignKey(
+        StudentProfile,
+        on_delete=models.CASCADE,
+        related_name="moratoires",
+        db_column="student_id",
+    )
+    montant_reporte = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        help_text="Montant du solde reporté par le moratoire",
+    )
+    date_accord = models.DateTimeField(
+        auto_now_add=True,
+        help_text="Date et heure d'accord du moratoire",
+    )
+    date_fin = models.DateField(
+        help_text="Date de fin du moratoire (date_accord + duree_jours)",
+    )
+    duree_jours = models.PositiveIntegerField(
+        choices=DureeChoices.choices,
+        default=DureeChoices.JOURS_30,
+        help_text="Durée du moratoire en jours",
+    )
+    motif = models.TextField(
+        blank=True,
+        help_text="Motif du moratoire (ex: Difficultés financières, Raison familiale)",
+    )
+    accorde_par = models.ForeignKey(
+        CoreIdentity,
+        on_delete=models.PROTECT,
+        related_name="moratoires_accordes",
+        db_column="accorde_par_id",
+        help_text="Identité de la personne ayant accordé le moratoire",
+    )
+    statut = models.CharField(
+        max_length=20,
+        choices=StatutChoices.choices,
+        default=StatutChoices.ACTIF,
+        db_index=True,
+    )
+    created_by_role = models.CharField(
+        max_length=50,
+        help_text="Rôle actif lors de la création (pour audit)",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "MORATOIRE"
+        verbose_name = "Moratoire"
+        verbose_name_plural = "Moratoires"
+        ordering = ["-date_accord"]
+        indexes = [
+            models.Index(fields=["student", "statut"]),
+            models.Index(fields=["date_fin"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"Moratoire {self.student.matricule_permanent} - {self.montant_reporte} FCFA - {self.statut}"
+
+    def clean(self) -> None:
+        """Valide les contraintes du moratoire."""
+        from django.utils import timezone
+
+        errors = {}
+
+        # Vérifier que montant_reporte > 0
+        if self.montant_reporte <= 0:
+            errors["montant_reporte"] = "Le montant reporté doit être supérieur à 0."
+
+        # Vérifier que date_fin > date_accord
+        date_accord_date = None
+        if self.date_accord:
+            if isinstance(self.date_accord, str):
+                from datetime import datetime
+                try:
+                    date_accord_date = datetime.fromisoformat(self.date_accord.replace("Z", "+00:00")).date()
+                except (ValueError, AttributeError):
+                    pass
+            else:
+                date_accord_date = self.date_accord.date() if hasattr(self.date_accord, "date") else None
+
+        if self.date_fin and date_accord_date:
+            if self.date_fin <= date_accord_date:
+                errors["date_fin"] = "La date de fin doit être postérieure à la date d'accord."
+
+        # Vérifier que montant_reporte <= solde de l'étudiant
+        if self.student_id:
+            try:
+                student = StudentProfile.objects.get(id=self.student_id)
+                if self.montant_reporte > abs(student.solde):
+                    errors["montant_reporte"] = (
+                        f"Le montant reporté ({self.montant_reporte}) ne peut pas dépasser "
+                        f"le solde de l'étudiant ({abs(student.solde)})."
+                    )
+            except StudentProfile.DoesNotExist:
+                errors["student"] = "Étudiant introuvable."
+
+        if errors:
+            raise ValidationError(errors)
+
+    def save(self, *args, **kwargs) -> None:
+        """Surcharge save pour appeler clean() et calculer date_fin si nécessaire."""
+        from datetime import timedelta
+        from django.utils import timezone
+
+        # Calculer date_fin si non fournie
+        if not self.date_fin and self.date_accord:
+            self.date_fin = (self.date_accord + timedelta(days=self.duree_jours)).date()
+        elif not self.date_fin:
+            self.date_fin = (timezone.now() + timedelta(days=self.duree_jours)).date()
+
+        # Valider avant sauvegarde
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+
+class Bourse(models.Model):
+    """BOURSE - Bourse accordée à un étudiant."""
+
+    class TypeBourse(models.TextChoices):
+        MERITE = "Merite", "Mérite académique"
+        BESOIN = "Besoin", "Besoins sociaux"
+        TUTELLE = "Tutelle", "Bourse tutelle/université partenaire"
+        EXTERNE = "Externe", "Bourse externe (ONG, État, etc.)"
+        INTERNE = "Interne", "Bourse IUEC interne"
+
+    class StatutChoices(models.TextChoices):
+        ACTIVE = "Active", "Active"
+        SUSPENDUE = "Suspendue", "Suspendue"
+        TERMINEE = "Terminee", "Terminée"
+
+    student = models.ForeignKey(
+        StudentProfile,
+        on_delete=models.CASCADE,
+        related_name="bourses",
+        db_column="student_id",
+    )
+    type_bourse = models.CharField(
+        max_length=50,
+        choices=TypeBourse.choices,
+        help_text="Type de bourse accordée",
+    )
+    montant = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        help_text="Montant total de la bourse",
+    )
+    pourcentage = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Pourcentage de réduction (ex: 50.00 pour 50%)",
+    )
+    annee_academique = models.ForeignKey(
+        AcademicYear,
+        on_delete=models.PROTECT,
+        related_name="bourses",
+        db_column="academic_year_id",
+    )
+    date_attribution = models.DateTimeField(
+        auto_now_add=True,
+        help_text="Date et heure d'attribution de la bourse",
+    )
+    date_fin_validite = models.DateField(
+        null=True,
+        blank=True,
+        help_text="Date de fin de validité (ex: fin d'année ou semestre)",
+    )
+    motif = models.TextField(
+        blank=True,
+        help_text="Motif d'attribution de la bourse",
+    )
+    accorde_par = models.ForeignKey(
+        CoreIdentity,
+        on_delete=models.PROTECT,
+        related_name="bourses_accordees",
+        db_column="accorde_par_id",
+        help_text="Identité de la personne ayant accordé la bourse",
+    )
+    statut = models.CharField(
+        max_length=20,
+        choices=StatutChoices.choices,
+        default=StatutChoices.ACTIVE,
+        db_index=True,
+        help_text="Statut de la bourse",
+    )
+    conditions = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Conditions de maintien (ex: {'moyenne_min': 12, 'assiduite_min': 80})",
+    )
+    created_by_role = models.CharField(
+        max_length=50,
+        blank=True,
+        help_text="Rôle actif lors de la création (pour audit)",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "BOURSE"
+        verbose_name = "Bourse"
+        verbose_name_plural = "Bourses"
+        ordering = ["-date_attribution"]
+        indexes = [
+            models.Index(fields=["student", "statut"]),
+            models.Index(fields=["annee_academique", "statut"]),
+            models.Index(fields=["date_fin_validite"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"Bourse {self.type_bourse} - {self.student.matricule_permanent} - {self.montant} FCFA - {self.statut}"
+
+    def clean(self) -> None:
+        """Valide les contraintes de la bourse."""
+        from django.utils import timezone
+
+        errors = {}
+
+        # Vérifier que montant > 0
+        if self.montant <= 0:
+            errors["montant"] = "Le montant de la bourse doit être supérieur à 0."
+
+        # Vérifier que date_fin_validite > date_attribution
+        date_attribution_date = None
+        if self.date_attribution:
+            if isinstance(self.date_attribution, str):
+                from datetime import datetime
+                try:
+                    date_attribution_date = datetime.fromisoformat(
+                        self.date_attribution.replace("Z", "+00:00")
+                    ).date()
+                except (ValueError, AttributeError):
+                    pass
+            else:
+                date_attribution_date = (
+                    self.date_attribution.date()
+                    if hasattr(self.date_attribution, "date")
+                    else None
+                )
+
+        if self.date_fin_validite and date_attribution_date:
+            if self.date_fin_validite <= date_attribution_date:
+                errors["date_fin_validite"] = (
+                    "La date de fin de validité doit être postérieure à la date d'attribution."
+                )
+
+        # Vérifier que pourcentage <= 100 si fourni
+        if self.pourcentage is not None:
+            if self.pourcentage > 100:
+                errors["pourcentage"] = "Le pourcentage ne peut pas dépasser 100%."
+
+        if errors:
+            raise ValidationError(errors)
+
+    def save(self, *args, **kwargs) -> None:
+        """Surcharge save pour appeler clean()."""
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+
 @receiver(post_save, sender=Program)
 def recalculate_student_balance_on_fees_change(sender, instance: Program, created, **kwargs):
     """
@@ -529,3 +808,177 @@ def recalculate_student_balance_on_fees_change(sender, instance: Program, create
                 solde=new_solde,
                 finance_status=new_finance_status
             )
+
+
+@receiver(post_save, sender=Bourse)
+def recalculate_student_balance_on_bourse_change(sender, instance: Bourse, created, **kwargs):
+    """
+    Recalcule le solde de l'étudiant après création/modification d'une bourse.
+    - Si Active → recalcule solde = total_frais - montant_bourses_actives - paiements
+    - Si solde <= 0 → finance_status = 'OK'
+    - Si date_fin_validite dépassée → statut = 'Terminee' → recalcule solde sans bourse
+    """
+    from apps.finance.models import Invoice, Payment
+    from apps.academic.services.frais_echeance_calculator import FraisEcheanceCalculator
+
+    # Vérifier si la date de fin de validité est dépassée
+    if instance.date_fin_validite and instance.date_fin_validite < date.today():
+        if instance.statut != Bourse.StatutChoices.TERMINEE:
+            # Mettre à jour le statut à Terminée
+            Bourse.objects.filter(id=instance.id).update(
+                statut=Bourse.StatutChoices.TERMINEE
+            )
+            instance.statut = Bourse.StatutChoices.TERMINEE
+
+    # Si la bourse est active, recalculer le solde en tenant compte des bourses actives
+    if instance.statut == Bourse.StatutChoices.ACTIVE:
+        try:
+            student = instance.student
+            
+            # Calculer le total des factures
+            total_invoices = Invoice.objects.filter(
+                identity_uuid=student.identity.id
+            ).aggregate(
+                total=models.Sum("total_amount")
+            )["total"] or Decimal("0")
+            
+            # Calculer le total des paiements
+            total_payments = Payment.objects.filter(
+                invoice__identity_uuid=student.identity.id
+            ).aggregate(
+                total=models.Sum("amount")
+            )["total"] or Decimal("0")
+            
+            # Calculer le total des bourses actives pour cet étudiant
+            total_bourses_actives = Bourse.objects.filter(
+                student=student,
+                statut=Bourse.StatutChoices.ACTIVE
+            ).aggregate(
+                total=models.Sum("montant")
+            )["total"] or Decimal("0")
+            
+            # Solde = factures - paiements - bourses actives
+            new_solde = total_invoices - total_payments - total_bourses_actives
+            
+            # Mettre à jour le solde et le statut financier
+            new_finance_status = "OK" if new_solde <= 0 else "Bloqué"
+            
+            # Utiliser update pour éviter de déclencher à nouveau le signal
+            StudentProfile.objects.filter(id=student.id).update(
+                solde=new_solde,
+                finance_status=new_finance_status
+            )
+        except StudentProfile.DoesNotExist:
+            pass
+    else:
+        # Si la bourse n'est plus active, recalculer sans cette bourse
+        try:
+            student = instance.student
+            calculator = FraisEcheanceCalculator()
+            calculator.update_solde_etudiant(student)
+        except StudentProfile.DoesNotExist:
+            pass
+
+    # Audit trail : log attribution bourse avec rôle actif
+    try:
+        actor_email = instance.accorde_par.email if instance.accorde_par else ""
+        active_role = instance.created_by_role or "ADMIN_SI"
+        
+        SysAuditLog.objects.create(
+            action="BOURSE_ATTRIBUTED" if created else "BOURSE_UPDATED",
+            entity_type="BOURSE",
+            entity_id=uuid4(),
+            actor_email=actor_email,
+            active_role=active_role,
+            payload={
+                "bourse_id": str(instance.id),
+                "student_id": str(instance.student.id),
+                "student_matricule": instance.student.matricule_permanent,
+                "type_bourse": instance.type_bourse,
+                "montant": str(instance.montant),
+                "pourcentage": str(instance.pourcentage) if instance.pourcentage else None,
+                "statut": instance.statut,
+                "annee_academique": instance.annee_academique.code if instance.annee_academique else None,
+            },
+        )
+    except Exception as e:
+        # Ne pas bloquer si l'audit log échoue
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.warning(f"Erreur création audit log pour bourse: {str(e)}")
+
+
+class StudentRequest(models.Model):
+    """STUDENT_REQUEST - Demandes administratives des étudiants."""
+
+    class TypeDemande(models.TextChoices):
+        RELEVE = "Releve", "Relevé de notes"
+        CERTIFICAT = "Certificat", "Certificat de scolarité"
+        MORATOIRE = "Moratoire", "Demande de moratoire"
+        BOURSE = "Bourse", "Demande de bourse"
+        AUTRE = "Autre", "Autre demande"
+
+    class StatutChoices(models.TextChoices):
+        EN_ATTENTE = "En_attente", "En attente"
+        EN_COURS = "En_cours", "En cours de traitement"
+        TRAITEE = "Traitee", "Traitée"
+        REJETEE = "Rejetee", "Rejetée"
+
+    student = models.ForeignKey(
+        StudentProfile,
+        on_delete=models.CASCADE,
+        related_name="requests",
+        db_column="student_id",
+    )
+    type_demande = models.CharField(
+        max_length=50,
+        choices=TypeDemande.choices,
+        help_text="Type de demande",
+    )
+    motif = models.TextField(
+        help_text="Motif de la demande",
+    )
+    piece_jointe = models.FileField(
+        upload_to="student_requests/",
+        null=True,
+        blank=True,
+        help_text="Pièce jointe optionnelle",
+    )
+    statut = models.CharField(
+        max_length=20,
+        choices=StatutChoices.choices,
+        default=StatutChoices.EN_ATTENTE,
+        db_index=True,
+    )
+    reponse = models.TextField(
+        blank=True,
+        help_text="Réponse de l'administration",
+    )
+    traite_par = models.ForeignKey(
+        CoreIdentity,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="requests_traitees",
+        db_column="traite_par_id",
+    )
+    date_traitement = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Date de traitement",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "STUDENT_REQUEST"
+        verbose_name = "Demande étudiante"
+        verbose_name_plural = "Demandes étudiantes"
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["student", "statut"]),
+            models.Index(fields=["type_demande", "statut"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"Demande {self.type_demande} - {self.student.matricule_permanent} ({self.statut})"

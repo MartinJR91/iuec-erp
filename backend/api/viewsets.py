@@ -17,7 +17,9 @@ from .permissions import (
     ProgramPermission,
     SoDPermission,
     StudentProfilePermission,
+    UserStudentPermission,
 )
+from .mixins import _get_identity_from_request
 from .serializers import (
     CoreIdentitySerializer,
     FacultySerializer,
@@ -50,7 +52,22 @@ class GradeEntryViewSet(viewsets.ModelViewSet):
 class InvoiceViewSet(viewsets.ModelViewSet):
     queryset = Invoice.objects.all()
     serializer_class = InvoiceSerializer
-    permission_classes = (OperatorFinancePermission, SoDPermission)
+    permission_classes = (UserStudentPermission, OperatorFinancePermission, SoDPermission)
+
+    def get_queryset(self):  # type: ignore[override]
+        """Filtre le queryset selon le rôle actif."""
+        queryset = super().get_queryset()
+        role_active = getattr(self.request, "role_active", None)
+        
+        # USER_STUDENT : seulement ses propres factures
+        if role_active == "USER_STUDENT":
+            identity = _get_identity_from_request(self.request)
+            if identity:
+                queryset = queryset.filter(identity_uuid=identity.id)
+            else:
+                queryset = queryset.none()
+        
+        return queryset
 
 
 class FacultyViewSet(viewsets.ModelViewSet):

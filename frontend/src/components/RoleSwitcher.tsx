@@ -11,6 +11,7 @@ import {
   Stack,
   Typography,
 } from "@mui/material";
+import toast from "react-hot-toast";
 
 import { useAuth, UserRole } from "../context/AuthContext";
 import api from "../services/api";
@@ -46,13 +47,17 @@ const RoleSwitcher: React.FC = () => {
           if (response.data?.token || response.data?.access) {
             const newToken = response.data.token || response.data.access;
             localStorage.setItem("token", newToken);
+            toast.success(`Rôle changé vers ${ROLE_LABELS[role] || role}`);
             // Recharger la page pour mettre à jour le token dans AuthContext
             window.location.reload();
           }
         } catch (error) {
           // Si l'endpoint échoue, on continue avec le rôle mis à jour localement
           console.warn("Impossible de régénérer le token:", error);
+          toast.success(`Rôle changé vers ${ROLE_LABELS[role] || role}`);
         }
+      } else {
+        toast.success(`Rôle changé vers ${ROLE_LABELS[role] || role}`);
       }
     } finally {
       setLoading(false);

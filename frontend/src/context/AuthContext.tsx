@@ -95,10 +95,16 @@ export const AuthProvider: React.FC<React.PropsWithChildren> = ({ children }) =>
       }
     }
     setLoading(false);
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Initialisation unique au montage
 
   const login = async (credentials: LoginCredentials): Promise<void> => {
     try {
+      // Validation côté client
+      if (!credentials.email || !credentials.password) {
+        throw new Error("Veuillez remplir tous les champs");
+      }
+      
       const response = await api.post<TokenResponse>("/api/token/", credentials);
       const { access } = response.data;
       
@@ -120,8 +126,17 @@ export const AuthProvider: React.FC<React.PropsWithChildren> = ({ children }) =>
         throw new Error("Token invalide");
       }
     } catch (error) {
-      if (axios.isAxiosError(error) && error.response?.status === 401) {
-        throw new Error("Identifiants incorrects");
+      if (axios.isAxiosError(error)) {
+        if (error.response?.status === 401) {
+          throw new Error("Email ou mot de passe incorrect");
+        } else if (error.response?.status === 400) {
+          throw new Error(error.response.data?.detail || "Données invalides");
+        } else if (error.response?.status === 500) {
+          throw new Error("Erreur serveur. Veuillez réessayer plus tard.");
+        }
+      }
+      if (error instanceof Error) {
+        throw error;
       }
       throw new Error("Erreur de connexion. Veuillez réessayer.");
     }
@@ -154,7 +169,7 @@ export const AuthProvider: React.FC<React.PropsWithChildren> = ({ children }) =>
       logout,
       setActiveRole,
     }),
-    [user, token, loading, login, logout]
+    [user, token, loading, login, logout, setActiveRole]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

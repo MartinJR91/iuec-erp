@@ -63,8 +63,14 @@ const Faculties: React.FC = () => {
           setSelectedProgramId(initialProgram.id);
           setRulesJson(JSON.stringify(initialProgram.academic_rules_json, null, 2));
         }
-      } catch (err) {
-        setError("Impossible de charger les facultés.");
+      } catch (err: any) {
+        const errorMsg = err.response?.data?.detail || err.response?.status === 403 
+          ? "Accès refusé. Vous n'avez pas les permissions nécessaires."
+          : err.response?.status === 401
+          ? "Non authentifié. Veuillez vous reconnecter."
+          : "Impossible de charger les facultés.";
+        setError(errorMsg);
+        console.error("Erreur chargement facultés:", err);
       } finally {
         setLoading(false);
       }

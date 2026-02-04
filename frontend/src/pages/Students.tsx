@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   Alert,
   Box,
@@ -11,8 +12,15 @@ import {
   Grid,
   InputAdornment,
   MenuItem,
+  Paper,
   Select,
   Stack,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
   TextField,
   Typography,
 } from "@mui/material";
@@ -45,6 +53,10 @@ interface StudentRow {
   academic_status?: string;
   balance: number;
   current_level?: string;
+  moratoires_actifs?: number;
+  moratoires_actifs_data?: Array<{ statut: string; date_fin: string }>;
+  bourses_actives?: number;
+  bourses_actives_data?: Array<{ id: string; montant: number; statut: string }>;
   registrations_admin?: Array<{
     id: number;
     academic_year: { code: string; label: string } | string;
@@ -56,6 +68,7 @@ interface StudentRow {
 
 const Students: React.FC = () => {
   const { activeRole, token } = useAuth();
+  const [searchParams] = useSearchParams();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [rows, setRows] = useState<StudentRow[]>([]);
@@ -67,6 +80,13 @@ const Students: React.FC = () => {
   const [selectedStudentStatus, setSelectedStudentStatus] = useState<string>("");
   const [searchTerm, setSearchTerm] = useState("");
   const [facultyFilter, setFacultyFilter] = useState<string>("");
+  const [moratoireFilter, setMoratoireFilter] = useState<boolean | null>(
+    searchParams.get("moratoire_actif") === "true" ? true : null
+  );
+  const [bourseFilter, setBourseFilter] = useState<boolean | null>(
+    searchParams.get("boursier") === "true" ? true : null
+  );
+  const [studentBourses, setStudentBourses] = useState<Record<string, Array<{ id: string; montant: number; statut: string; type_bourse: string; date_fin_validite: string | null }>>>({});
   const [paginationModel, setPaginationModel] = useState<GridPaginationModel>({
     page: 0,
     pageSize: 10,
@@ -112,8 +132,39 @@ const Students: React.FC = () => {
           balance: Number(item.balance || 0),
           current_level: item.registrations_admin?.[0]?.level || "",
           registrations_admin: item.registrations_admin || [],
+          bourses_actives: 0,
+          bourses_actives_data: [],
         }));
-        setRows(data);
+        
+        // Charger les bourses actives pour chaque étudiant
+        if (!isStudent) {
+          const boursesPromises = data.map(async (student) => {
+            try {
+              const boursesResponse = await axios.get(`/api/students/${student.id}/bourses-actives/`, {
+                headers: {
+                  Authorization: `Bearer ${token}`,
+                  "X-Role-Active": activeRole,
+                },
+              });
+              const bourses = boursesResponse.data.bourses || [];
+              return {
+                ...student,
+                bourses_actives: bourses.length,
+                bourses_actives_data: bourses.map((b: any) => ({
+                  id: b.id,
+                  montant: b.montant,
+                  statut: b.statut,
+                })),
+              };
+            } catch {
+              return student;
+            }
+          });
+          const studentsWithBourses = await Promise.all(boursesPromises);
+          setRows(studentsWithBourses);
+        } else {
+          setRows(data);
+        }
       } catch (err: any) {
         const errorMsg = err.response?.data?.detail || "Impossible de charger les étudiants.";
         setError(errorMsg);
@@ -142,8 +193,22 @@ const Students: React.FC = () => {
     if (facultyFilter && isRecteur) {
       filtered = filtered.filter((row) => row.faculty_code === facultyFilter);
     }
+    if (moratoireFilter !== null) {
+      if (moratoireFilter) {
+        filtered = filtered.filter((row) => (row.moratoires_actifs || 0) > 0);
+      } else {
+        filtered = filtered.filter((row) => (row.moratoires_actifs || 0) === 0);
+      }
+    }
+    if (bourseFilter !== null) {
+      if (bourseFilter) {
+        filtered = filtered.filter((row) => (row.bourses_actives || 0) > 0);
+      } else {
+        filtered = filtered.filter((row) => (row.bourses_actives || 0) === 0);
+      }
+    }
     return filtered;
-  }, [rows, searchTerm, facultyFilter, isRecteur]);
+  }, [rows, searchTerm, facultyFilter, moratoireFilter, bourseFilter, isRecteur]);
 
   const uniqueFaculties = useMemo(() => {
     const faculties = new Set<string>();
@@ -243,14 +308,31 @@ const Students: React.FC = () => {
         valueFormatter: (params) => `${Number(params.value || 0).toLocaleString("fr-FR")} XAF`,
         renderCell: (params) => {
           const balance = Number(params.value || 0);
+          const hasBourse = (params.row.bourses_actives || 0) > 0;
           return (
             <Typography
               variant="body2"
               sx={{ color: balance > 0 ? "error.main" : "success.main", fontWeight: balance > 0 ? "bold" : "normal" }}
             >
-              {Math.abs(balance).toLocaleString("fr-FR")} XAF
+              {hasBourse ? "Couvert par bourse" : `${Math.abs(balance).toLocaleString("fr-FR")} XAF`}
             </Typography>
           );
+        },
+      },
+      {
+        field: "bourses_actives",
+        headerName: "Bourses actives",
+        minWidth: 150,
+        flex: 0.8,
+        renderCell: (params) => {
+          const count = params.row.bourses_actives || 0;
+          if (count === 0) {
+            return <Typography variant="body2" color="text.secondary">—</Typography>;
+          }
+          const hasActive = params.row.bourses_actives_data?.some((b: any) => b.statut === "Active");
+          const hasSuspended = params.row.bourses_actives_data?.some((b: any) => b.statut === "Suspendue");
+          const color = hasActive ? "success" : hasSuspended ? "warning" : "default";
+          return <Chip label={`${count} bourse(s)`} color={color} size="small" />;
         },
       },
     ];
@@ -291,7 +373,7 @@ const Students: React.FC = () => {
     }
 
     return baseColumns;
-  }, [isStudent, isScolarite]);
+  }, [isStudent, isScolarite, rows]);
 
   const handleValidateRegistrations = async () => {
     if (selectedRows.length === 0) {
@@ -539,6 +621,34 @@ const Students: React.FC = () => {
                   ))}
                 </Select>
               )}
+              <Select
+                value={moratoireFilter === null ? "" : moratoireFilter ? "avec" : "sans"}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setMoratoireFilter(value === "" ? null : value === "avec");
+                }}
+                displayEmpty
+                size="small"
+                sx={{ minWidth: 200 }}
+              >
+                <MenuItem value="">Tous les étudiants</MenuItem>
+                <MenuItem value="avec">Avec moratoire actif</MenuItem>
+                <MenuItem value="sans">Sans moratoire actif</MenuItem>
+              </Select>
+              <Select
+                value={bourseFilter === null ? "" : bourseFilter ? "avec" : "sans"}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setBourseFilter(value === "" ? null : value === "avec");
+                }}
+                displayEmpty
+                size="small"
+                sx={{ minWidth: 200 }}
+              >
+                <MenuItem value="">Tous les étudiants</MenuItem>
+                <MenuItem value="avec">Avec bourse active</MenuItem>
+                <MenuItem value="sans">Sans bourse active</MenuItem>
+              </Select>
             </Box>
             <Box sx={{ height: 600 }}>
               <DataGrid
@@ -755,6 +865,84 @@ const Students: React.FC = () => {
         </Grid>
       )}
 
+      {isStudent && filteredRows.length > 0 && (
+        <Grid container spacing={3} sx={{ mt: 1 }}>
+          {filteredRows.map((row) => {
+            const boursesData = studentBourses[row.id] || [];
+            const totalBourses = boursesData.reduce((sum, b) => sum + b.montant, 0);
+            const hasActiveBourse = boursesData.some((b) => b.statut === "Active");
+            
+            return (
+              <Grid item xs={12} key={`bourses-${row.id}`}>
+                <Card>
+                  <CardContent>
+                    <Typography variant="h6" gutterBottom>
+                      Mes bourses
+                    </Typography>
+                    {boursesData.length > 0 ? (
+                      <Box>
+                        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                          Total des bourses actives: {totalBourses.toLocaleString("fr-FR")} XAF
+                        </Typography>
+                        {hasActiveBourse && row.balance <= 0 && (
+                          <Alert severity="success" sx={{ mb: 2 }}>
+                            Votre solde est couvert par une bourse active.
+                          </Alert>
+                        )}
+                        <TableContainer component={Paper} variant="outlined">
+                          <Table size="small">
+                            <TableHead>
+                              <TableRow>
+                                <TableCell>Type</TableCell>
+                                <TableCell align="right">Montant</TableCell>
+                                <TableCell>Statut</TableCell>
+                                <TableCell>Date fin</TableCell>
+                              </TableRow>
+                            </TableHead>
+                            <TableBody>
+                              {boursesData.map((bourse) => (
+                                <TableRow key={bourse.id}>
+                                  <TableCell>
+                                    <Chip
+                                      label={bourse.type_bourse}
+                                      size="small"
+                                      color={bourse.statut === "Active" ? "success" : bourse.statut === "Suspendue" ? "warning" : "default"}
+                                    />
+                                  </TableCell>
+                                  <TableCell align="right">
+                                    {bourse.montant.toLocaleString("fr-FR")} XAF
+                                  </TableCell>
+                                  <TableCell>
+                                    <Chip
+                                      label={bourse.statut}
+                                      size="small"
+                                      color={bourse.statut === "Active" ? "success" : bourse.statut === "Suspendue" ? "warning" : "error"}
+                                    />
+                                  </TableCell>
+                                  <TableCell>
+                                    {bourse.date_fin_validite
+                                      ? new Date(bourse.date_fin_validite).toLocaleDateString("fr-FR")
+                                      : "—"}
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </TableContainer>
+                      </Box>
+                    ) : (
+                      <Typography variant="body2" color="text.secondary">
+                        Aucune bourse active.
+                      </Typography>
+                    )}
+                  </CardContent>
+                </Card>
+              </Grid>
+            );
+          })}
+        </Grid>
+      )}
+
       <StudentDetailModal
         open={detailModalOpen}
         onClose={() => {
@@ -762,6 +950,34 @@ const Students: React.FC = () => {
           setSelectedStudentId(null);
         }}
         studentId={selectedStudentId}
+      />
+      
+      <StudentEnrollModal
+        open={enrollModalOpen}
+        onClose={() => {
+          setEnrollModalOpen(false);
+        }}
+        onSuccess={() => {
+          setEnrollModalOpen(false);
+          // Rafraîchir la liste
+          window.location.reload();
+        }}
+      />
+      
+      <StudentStatusModal
+        open={statusModalOpen}
+        onClose={() => {
+          setStatusModalOpen(false);
+          setSelectedStudentId(null);
+        }}
+        studentId={selectedStudentId}
+        currentStatus={selectedStudentStatus}
+        onSuccess={() => {
+          setStatusModalOpen(false);
+          setSelectedStudentId(null);
+          // Rafraîchir la liste
+          window.location.reload();
+        }}
       />
     </Box>
   );

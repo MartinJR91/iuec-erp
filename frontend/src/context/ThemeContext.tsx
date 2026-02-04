@@ -30,7 +30,8 @@ export const ThemeProviderContext: React.FC<React.PropsWithChildren> = ({ childr
     if (next !== darkMode) {
       setDarkMode(next);
     }
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Initialisation unique au montage
 
   const toggleDarkMode = () => {
     setDarkMode((prev) => {

@@ -7,7 +7,9 @@ from rest_framework import permissions
 from rest_framework.routers import DefaultRouter
 
 from .auth import obtain_token, regenerate_token
+from .bourse_views import BourseViewSet
 from .notes_views import GradesViewSet, jury_close, my_courses
+from .request_views import StudentRequestViewSet
 from .views import (
     bulk_update_grades,
     courses_endpoint,
@@ -21,6 +23,7 @@ from .views import (
     validate_registration,
     workflows_validate,
 )
+from .moratoire_views import MoratoireViewSet
 from .students_views import StudentsViewSet
 from .viewsets import (
     CoreIdentityViewSet,
@@ -40,6 +43,9 @@ router.register(r"programs", ProgramViewSet, basename="programs")
 router.register(r"student-profiles", StudentProfileViewSet, basename="student-profiles")
 router.register(r"students", StudentsViewSet, basename="students")
 router.register(r"grades", GradesViewSet, basename="grades")
+router.register(r"moratoires", MoratoireViewSet, basename="moratoires")
+router.register(r"bourses", BourseViewSet, basename="bourses")
+router.register(r"requests", StudentRequestViewSet, basename="requests")
 
 schema_view = get_schema_view(
     openapi.Info(
