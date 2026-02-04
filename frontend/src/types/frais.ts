@@ -160,8 +160,8 @@ export interface MoratoireSummary {
 export interface BoursesEtMoratoiresResponse {
   student_id: string;
   matricule: string;
-  bourses: BourseSummary[];
-  moratoires: MoratoireSummary[];
+  bourses: Bourse[];
+  moratoires: Moratoire[];
   total_bourses: number;
   total_moratoires: number;
 }
