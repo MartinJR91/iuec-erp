@@ -982,3 +982,82 @@ class StudentRequest(models.Model):
 
     def __str__(self) -> str:
         return f"Demande {self.type_demande} - {self.student.matricule_permanent} ({self.statut})"
+
+
+class DemandeAdministrative(models.Model):
+    """DEMANDE_ADMINISTRATIVE - Demandes administratives des étudiants."""
+
+    class TypeDemande(models.TextChoices):
+        RELEVE_NOTES = "Releve_notes", "Relevé de notes"
+        CERTIFICAT_SCOLARITE = "Certificat_scolarite", "Certificat de scolarité"
+        ATTESTATION_REUSSITE = "Attestation_reussite", "Attestation de réussite"
+        AUTRE = "Autre", "Autre (préciser)"
+
+    class StatutChoices(models.TextChoices):
+        EN_ATTENTE = "En attente", "En attente"
+        APPROUVEE = "Approuvée", "Approuvée"
+        REJETEE = "Rejetée", "Rejetée"
+
+    student = models.ForeignKey(
+        StudentProfile,
+        on_delete=models.CASCADE,
+        related_name="demandes",
+        db_column="student_id",
+    )
+    type_demande = models.CharField(
+        max_length=50,
+        choices=TypeDemande.choices,
+        help_text="Type de demande administrative",
+    )
+    motif = models.TextField(
+        help_text="Motif de la demande",
+    )
+    statut = models.CharField(
+        max_length=20,
+        choices=StatutChoices.choices,
+        default=StatutChoices.EN_ATTENTE,
+        db_index=True,
+    )
+    date_soumission = models.DateTimeField(
+        auto_now_add=True,
+        help_text="Date et heure de soumission",
+    )
+    date_traitement = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Date et heure de traitement",
+    )
+    traite_par = models.ForeignKey(
+        CoreIdentity,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="demandes_traitees",
+        db_column="traite_par_id",
+    )
+    piece_jointe = models.FileField(
+        upload_to="demandes/",
+        null=True,
+        blank=True,
+        help_text="Pièce jointe optionnelle",
+    )
+    commentaire = models.TextField(
+        blank=True,
+        help_text="Commentaire de l'administration",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "DEMANDE_ADMINISTRATIVE"
+        verbose_name = "Demande administrative"
+        verbose_name_plural = "Demandes administratives"
+        ordering = ["-date_soumission"]
+        indexes = [
+            models.Index(fields=["student", "statut"]),
+            models.Index(fields=["type_demande", "statut"]),
+            models.Index(fields=["date_soumission"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"Demande {self.type_demande} - {self.student.matricule_permanent} ({self.statut})"

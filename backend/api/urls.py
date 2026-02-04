@@ -8,6 +8,7 @@ from rest_framework.routers import DefaultRouter
 
 from .auth import obtain_token, regenerate_token
 from .bourse_views import BourseViewSet
+from .demande_views import DemandeViewSet
 from .notes_views import GradesViewSet, jury_close, my_courses
 from .request_views import StudentRequestViewSet
 from .views import (
@@ -46,6 +47,7 @@ router.register(r"grades", GradesViewSet, basename="grades")
 router.register(r"moratoires", MoratoireViewSet, basename="moratoires")
 router.register(r"bourses", BourseViewSet, basename="bourses")
 router.register(r"requests", StudentRequestViewSet, basename="requests")
+router.register(r"demandes", DemandeViewSet, basename="demandes")
 
 schema_view = get_schema_view(
     openapi.Info(

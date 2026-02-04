@@ -6,6 +6,7 @@ from apps.academic.models import (
     AcademicYear,
     Bourse,
     CourseElement,
+    DemandeAdministrative,
     Evaluation,
     Faculty,
     Grade,
@@ -447,6 +448,65 @@ class StudentRequestCreateSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = StudentRequest
+        fields = (
+            "type_demande",
+            "motif",
+            "piece_jointe",
+        )
+
+
+class DemandeAdministrativeSerializer(serializers.ModelSerializer):
+    """Serializer pour DemandeAdministrative."""
+
+    student_matricule = serializers.CharField(source="student.matricule_permanent", read_only=True)
+    student_nom = serializers.SerializerMethodField()
+    traite_par_email = serializers.CharField(source="traite_par.email", read_only=True)
+
+    def get_student_nom(self, obj) -> str:
+        """Retourne le nom complet de l'étudiant."""
+        if obj.student and obj.student.identity:
+            return f"{obj.student.identity.last_name} {obj.student.identity.first_name}"
+        return ""
+
+    class Meta:
+        model = DemandeAdministrative
+        fields = (
+            "id",
+            "student",
+            "student_matricule",
+            "student_nom",
+            "type_demande",
+            "motif",
+            "statut",
+            "date_soumission",
+            "date_traitement",
+            "traite_par",
+            "traite_par_email",
+            "piece_jointe",
+            "commentaire",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = (
+            "id",
+            "statut",
+            "date_soumission",
+            "date_traitement",
+            "traite_par",
+            "traite_par_email",
+            "commentaire",
+            "created_at",
+            "updated_at",
+            "student_matricule",
+            "student_nom",
+        )
+
+
+class DemandeAdministrativeCreateSerializer(serializers.ModelSerializer):
+    """Serializer pour la création de DemandeAdministrative par l'étudiant."""
+
+    class Meta:
+        model = DemandeAdministrative
         fields = (
             "type_demande",
             "motif",

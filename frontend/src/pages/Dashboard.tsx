@@ -46,7 +46,7 @@ import api from "../services/api";
 import { useAuth } from "../context/AuthContext";
 import DashboardContent from "../components/DashboardContent";
 import { useDashboardData } from "../hooks/useDashboardData";
-import { Bourse, Moratoire } from "../types/frais";
+import { Bourse, BoursesEtMoratoiresResponse, Moratoire } from "../types/frais";
 
 const Dashboard: React.FC = () => {
   const { activeRole, user, token } = useAuth();
@@ -1162,36 +1162,54 @@ const StudentRegistrationsCard: React.FC = () => {
 };
 
 const StudentBoursesMoratoiresCard: React.FC = () => {
-  const { user, token } = useAuth();
+  const { user, token, activeRole } = useAuth();
+  const navigate = useNavigate();
   const [bourses, setBourses] = React.useState<Bourse[]>([]);
   const [moratoires, setMoratoires] = React.useState<Moratoire[]>([]);
   const [loading, setLoading] = React.useState(true);
+  const [studentId, setStudentId] = React.useState<string | null>(null);
+  const [soldeFinal, setSoldeFinal] = React.useState<number | null>(null);
 
   React.useEffect(() => {
-    if (!token || !user) return;
+    if (!token || !user || activeRole !== "USER_STUDENT") return;
     const fetchData = async () => {
       try {
-        // Récupérer les bourses
-        const boursesRes = await api.get("/api/bourses/", {
+        // Récupérer d'abord le profil étudiant pour obtenir l'ID
+        const studentsRes = await api.get("/api/students/", {
           headers: { Authorization: `Bearer ${token}` },
         });
-        const boursesData = Array.isArray(boursesRes.data) ? boursesRes.data : boursesRes.data?.results || [];
-        setBourses(boursesData.filter((b: Bourse) => b.statut !== "Terminee"));
+        const students = Array.isArray(studentsRes.data) ? studentsRes.data : studentsRes.data?.results || [];
+        if (students.length === 0) {
+          setLoading(false);
+          return;
+        }
+        const student = students[0];
+        setStudentId(student.id);
+        setSoldeFinal(student.solde || 0);
 
-        // Récupérer les moratoires
-        const moratoiresRes = await api.get("/api/moratoires/", {
+        // Utiliser le nouvel endpoint
+        const response = await api.get(`/api/students/${student.id}/bourses-et-moratoires/`, {
           headers: { Authorization: `Bearer ${token}` },
         });
-        const moratoiresData = Array.isArray(moratoiresRes.data) ? moratoiresRes.data : moratoiresRes.data?.results || [];
-        setMoratoires(moratoiresData.filter((m: Moratoire) => m.statut === "Actif"));
+        setBourses(response.data.bourses || []);
+        setMoratoires(response.data.moratoires || []);
+        
+        // Calculer le solde final après bourses/moratoires
+        const totalBourses = response.data.total_bourses || 0;
+        const totalMoratoires = response.data.total_moratoires || 0;
+        const soldeInitial = student.solde || 0;
+        // Solde final = solde initial - bourses (réduction) + moratoires reportés (dette reportée)
+        // Note: les moratoires reportent la dette, donc ils n'augmentent pas le solde, ils le reportent
+        setSoldeFinal(soldeInitial - totalBourses);
       } catch (err) {
         console.error("Erreur chargement bourses/moratoires:", err);
+        toast.error("Erreur lors du chargement des aides financières");
       } finally {
         setLoading(false);
       }
     };
     fetchData();
-  }, [token, user]);
+  }, [token, user, activeRole]);
 
   if (loading) {
     return <CircularProgress />;

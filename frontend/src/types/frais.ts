@@ -115,3 +115,53 @@ export interface BoursesActivesResponse {
   bourses: Bourse[];
   total_bourses_actives: number;
 }
+
+export interface DemandeAdministrative {
+  id: string;
+  student: string;
+  student_matricule: string;
+  student_nom: string;
+  type_demande: "Releve_notes" | "Certificat_scolarite" | "Attestation_reussite" | "Autre";
+  motif: string;
+  statut: "En attente" | "Approuvée" | "Rejetée";
+  date_soumission: string;
+  date_traitement: string | null;
+  traite_par: string | null;
+  traite_par_email: string | null;
+  piece_jointe: string | null;
+  commentaire: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BourseSummary {
+  id: string;
+  type_bourse: "Merite" | "Besoin" | "Tutelle" | "Externe" | "Interne";
+  montant: number;
+  pourcentage: number | null;
+  date_attribution: string;
+  date_fin_validite: string | null;
+  statut: "Active" | "Suspendue" | "Terminee";
+  motif: string;
+  accorde_par_email: string;
+}
+
+export interface MoratoireSummary {
+  id: string;
+  montant_reporte: number;
+  date_accord: string;
+  date_fin: string;
+  statut: "Actif" | "Respecté" | "Dépassé";
+  motif: string;
+  accorde_par_email: string;
+  duree_jours: number;
+}
+
+export interface BoursesEtMoratoiresResponse {
+  student_id: string;
+  matricule: string;
+  bourses: BourseSummary[];
+  moratoires: MoratoireSummary[];
+  total_bourses: number;
+  total_moratoires: number;
+}

@@ -434,6 +434,65 @@ class UserStudentPermission(BasePermission):
         return False
 
 
+class DemandePermission(BasePermission):
+    """
+    Permission pour la gestion des demandes administratives :
+    - create : USER_STUDENT seulement
+    - read : USER_STUDENT (ses demandes), SCOLARITE/RECTEUR (toutes)
+    - update/traiter : SCOLARITE/RECTEUR seulement
+    """
+
+    def has_permission(self, request: HttpRequest, view) -> bool:  # type: ignore[override]
+        if request.method == "OPTIONS":
+            return True
+        role_active = getattr(request, "role_active", None)
+        if not role_active:
+            return False
+
+        # Création : seulement USER_STUDENT
+        if request.method == "POST":
+            return role_active == "USER_STUDENT"
+
+        # Lecture : USER_STUDENT, SCOLARITE, RECTEUR, ADMIN_SI
+        if request.method in SAFE_METHODS:
+            return role_active in {"USER_STUDENT", "SCOLARITE", "RECTEUR", "ADMIN_SI"}
+
+        # Mise à jour : SCOLARITE, RECTEUR, ADMIN_SI
+        if request.method in {"PUT", "PATCH"}:
+            return role_active in {"SCOLARITE", "RECTEUR", "ADMIN_SI"}
+
+        # Suppression : ADMIN_SI seulement
+        if request.method == "DELETE":
+            return role_active == "ADMIN_SI"
+
+        return False
+
+    def has_object_permission(
+        self, request: HttpRequest, view, obj
+    ) -> bool:  # type: ignore[override]
+        """Vérifie l'accès à un objet demande spécifique."""
+        role_active = getattr(request, "role_active", None)
+        if not role_active:
+            return False
+
+        # ADMIN_SI a accès total
+        if role_active == "ADMIN_SI":
+            return True
+
+        # USER_STUDENT peut voir uniquement ses propres demandes
+        if role_active == "USER_STUDENT":
+            identity = _get_identity_from_request(request)
+            if identity and obj.student.identity_id == identity.id:
+                return request.method in SAFE_METHODS
+            return False
+
+        # SCOLARITE et RECTEUR ont accès en lecture/écriture
+        if role_active in {"SCOLARITE", "RECTEUR"}:
+            return True
+
+        return False
+
+
 def _get_identity_from_request(request: HttpRequest):
     """Récupère l'identité depuis la requête."""
     from identity.models import CoreIdentity

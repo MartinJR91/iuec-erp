@@ -908,3 +908,105 @@ class StudentsViewSet(ScopeFilterMixin, ModelViewSet):
             },
             status=status.HTTP_200_OK,
         )
+
+    @action(
+        detail=True,
+        methods=["GET"],
+        url_path="bourses-et-moratoires",
+    )
+    def get_bourses_et_moratoires(self, request: HttpRequest, pk=None, *args, **kwargs):  # type: ignore[override]
+        """
+        GET /api/students/<uuid>/bourses-et-moratoires/ : Retourne les bourses et moratoires actifs d'un étudiant.
+        
+        Retourne uniquement les bourses actives (statut = 'Active') et les moratoires actifs (statut = 'Actif').
+        """
+        student = self.get_object()
+        
+        # Vérifier que USER_STUDENT ne peut voir que ses propres données
+        role_active = getattr(request, "role_active", None)
+        if role_active == "USER_STUDENT":
+            identity = _get_identity_from_request(request)
+            if not identity or student.identity_id != identity.id:
+                return Response(
+                    {"detail": "Accès refusé. Vous ne pouvez consulter que vos propres données."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+        
+        # Récupérer les bourses actives
+        bourses = Bourse.objects.filter(
+            student=student,
+            statut=Bourse.StatutChoices.ACTIVE,
+        ).select_related("accorde_par", "annee_academique").order_by("-date_attribution")
+        
+        bourses_serializer = BourseSerializer(bourses, many=True)
+        
+        # Récupérer les moratoires actifs
+        moratoires = Moratoire.objects.filter(
+            student=student,
+            statut="Actif",
+        ).select_related("accorde_par").order_by("-date_accord")
+        
+        moratoires_serializer = MoratoireSerializer(moratoires, many=True)
+        
+        return Response(
+            {
+                "student_id": str(student.id),
+                "matricule": student.matricule_permanent,
+                "bourses": bourses_serializer.data,
+                "moratoires": moratoires_serializer.data,
+                "total_bourses": bourses.aggregate(total=Sum("montant"))["total"] or Decimal("0"),
+                "total_moratoires": moratoires.aggregate(total=Sum("montant_reporte"))["total"] or Decimal("0"),
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @action(
+        detail=True,
+        methods=["GET"],
+        url_path="bourses-et-moratoires",
+    )
+    def get_bourses_et_moratoires(self, request: HttpRequest, pk=None, *args, **kwargs):  # type: ignore[override]
+        """
+        GET /api/students/<uuid>/bourses-et-moratoires/ : Retourne les bourses et moratoires actifs d'un étudiant.
+        
+        Retourne uniquement les bourses actives (statut = 'Active') et les moratoires actifs (statut = 'Actif').
+        """
+        student = self.get_object()
+        
+        # Vérifier que USER_STUDENT ne peut voir que ses propres données
+        role_active = getattr(request, "role_active", None)
+        if role_active == "USER_STUDENT":
+            identity = _get_identity_from_request(request)
+            if not identity or student.identity_id != identity.id:
+                return Response(
+                    {"detail": "Accès refusé. Vous ne pouvez consulter que vos propres données."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+        
+        # Récupérer les bourses actives
+        bourses = Bourse.objects.filter(
+            student=student,
+            statut=Bourse.StatutChoices.ACTIVE,
+        ).select_related("accorde_par", "annee_academique").order_by("-date_attribution")
+        
+        bourses_serializer = BourseSerializer(bourses, many=True)
+        
+        # Récupérer les moratoires actifs
+        moratoires = Moratoire.objects.filter(
+            student=student,
+            statut="Actif",
+        ).select_related("accorde_par").order_by("-date_accord")
+        
+        moratoires_serializer = MoratoireSerializer(moratoires, many=True)
+        
+        return Response(
+            {
+                "student_id": str(student.id),
+                "matricule": student.matricule_permanent,
+                "bourses": bourses_serializer.data,
+                "moratoires": moratoires_serializer.data,
+                "total_bourses": bourses.aggregate(total=Sum("montant"))["total"] or Decimal("0"),
+                "total_moratoires": moratoires.aggregate(total=Sum("montant_reporte"))["total"] or Decimal("0"),
+            },
+            status=status.HTTP_200_OK,
+        )

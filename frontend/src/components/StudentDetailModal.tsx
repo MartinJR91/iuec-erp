@@ -27,7 +27,7 @@ import { CheckCircle, Warning, Error, Add } from "@mui/icons-material";
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
 import toast from "react-hot-toast";
 import api from "../services/api";
-import { Bourse, BoursesActivesResponse, EcheanceResponse, Moratoire } from "../types/frais";
+import { Bourse, BoursesActivesResponse, BoursesEtMoratoiresResponse, EcheanceResponse, Moratoire } from "../types/frais";
 import { useAuth } from "../context/AuthContext";
 
 interface StudentDetail {
@@ -97,6 +97,10 @@ const StudentDetailModal: React.FC<StudentDetailModalProps> = ({ open, onClose, 
   });
   const [submittingBourse, setSubmittingBourse] = React.useState(false);
   const [academicYears, setAcademicYears] = React.useState<Array<{ id: number; code: string; label: string }>>([]);
+  const [demandes, setDemandes] = React.useState<any[]>([]);
+  const [loadingDemandes, setLoadingDemandes] = React.useState(false);
+  const [boursesEtMoratoires, setBoursesEtMoratoires] = React.useState<BoursesEtMoratoiresResponse | null>(null);
+  const [loadingBoursesEtMoratoires, setLoadingBoursesEtMoratoires] = React.useState(false);
 
   React.useEffect(() => {
     if (!open || !studentId) {
@@ -265,6 +269,30 @@ const StudentDetailModal: React.FC<StudentDetailModalProps> = ({ open, onClose, 
       fetchAcademicYears();
     }
   }, [bourseModalOpen, student]);
+
+  // Charger bourses et moratoires via le nouvel endpoint (pour USER_STUDENT)
+  React.useEffect(() => {
+    if (!open || !studentId || activeRole !== "USER_STUDENT") {
+      return;
+    }
+    const fetchBoursesEtMoratoires = async () => {
+      setLoadingBoursesEtMoratoires(true);
+      try {
+        const response = await api.get<BoursesEtMoratoiresResponse>(`/api/students/${studentId}/bourses-et-moratoires/`);
+        setBoursesEtMoratoires(response.data);
+        setBourses(response.data.bourses || []);
+        setMoratoires(response.data.moratoires || []);
+      } catch (err) {
+        console.error("Erreur chargement bourses et moratoires:", err);
+        setBoursesEtMoratoires(null);
+        setBourses([]);
+        setMoratoires([]);
+      } finally {
+        setLoadingBoursesEtMoratoires(false);
+      }
+    };
+    fetchBoursesEtMoratoires();
+  }, [open, studentId, activeRole]);
 
   if (!student && !loading && !error) {
     return null;
@@ -687,6 +715,247 @@ const StudentDetailModal: React.FC<StudentDetailModalProps> = ({ open, onClose, 
               <Typography variant="body2" color="text.secondary">
                 Aucune bourse active trouvée.
               </Typography>
+            )}
+          </Box>
+        )}
+
+        {/* Section dédiée Bourses et Moratoires pour USER_STUDENT */}
+        {activeRole === "USER_STUDENT" && (
+          <Box sx={{ mt: 4 }}>
+            <Divider sx={{ my: 2 }} />
+            <Typography variant="h6" gutterBottom>
+              Aides financières
+            </Typography>
+
+
+            {/* Section Mes Bourses */}
+            <Box sx={{ mb: 4 }}>
+              <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
+                Mes Bourses
+              </Typography>
+              {loadingBoursesEtMoratoires ? (
+                <Box sx={{ display: "flex", justifyContent: "center", py: 2 }}>
+                  <CircularProgress size={24} />
+                </Box>
+              ) : bourses.length > 0 ? (
+                <Box sx={{ height: 300, width: "100%" }}>
+                  <DataGrid
+                    rows={bourses}
+                    columns={[
+                      {
+                        field: "type_bourse",
+                        headerName: "Type",
+                        width: 150,
+                        renderCell: (params) => {
+                          const typeLabels: Record<string, string> = {
+                            Merite: "Mérite",
+                            Besoin: "Besoins sociaux",
+                            Tutelle: "Tutelle",
+                            Externe: "Externe",
+                            Interne: "Interne",
+                          };
+                          return <Chip label={typeLabels[params.value] || params.value} size="small" color="primary" />;
+                        },
+                      },
+                      {
+                        field: "montant",
+                        headerName: "Montant couvert",
+                        width: 150,
+                        valueFormatter: (params) => `${Number(params.value || 0).toLocaleString("fr-FR")} XAF`,
+                      },
+                      {
+                        field: "pourcentage",
+                        headerName: "% Réduction",
+                        width: 120,
+                        valueFormatter: (params) => (params.value ? `${params.value}%` : "—"),
+                      },
+                      {
+                        field: "date_fin_validite",
+                        headerName: "Date fin validité",
+                        width: 150,
+                        valueFormatter: (params) => (params.value ? new Date(params.value).toLocaleDateString("fr-FR") : "—"),
+                      },
+                      {
+                        field: "statut",
+                        headerName: "Statut",
+                        width: 120,
+                        renderCell: (params) => {
+                          return <Chip label={params.value} color="success" size="small" />;
+                        },
+                      },
+                      {
+                        field: "motif",
+                        headerName: "Motif",
+                        flex: 1,
+                        minWidth: 200,
+                      },
+                    ]}
+                    pageSizeOptions={[5, 10]}
+                    initialState={{ pagination: { paginationModel: { pageSize: 5 } } }}
+                  />
+                </Box>
+              ) : (
+                <Alert severity="info">Aucune bourse active.</Alert>
+              )}
+            </Box>
+
+            {/* Section Mes Moratoires */}
+            <Box>
+              <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
+                Mes Moratoires
+              </Typography>
+              {loadingBoursesEtMoratoires ? (
+                <Box sx={{ display: "flex", justifyContent: "center", py: 2 }}>
+                  <CircularProgress size={24} />
+                </Box>
+              ) : moratoires.length > 0 ? (
+                <Box sx={{ height: 300, width: "100%" }}>
+                  <DataGrid
+                    rows={moratoires}
+                    columns={[
+                      {
+                        field: "montant_reporte",
+                        headerName: "Montant reporté",
+                        width: 150,
+                        valueFormatter: (params) => `${Number(params.value || 0).toLocaleString("fr-FR")} XAF`,
+                      },
+                      {
+                        field: "date_accord",
+                        headerName: "Date accord",
+                        width: 150,
+                        valueFormatter: (params) => new Date(params.value).toLocaleDateString("fr-FR"),
+                      },
+                      {
+                        field: "date_fin",
+                        headerName: "Date fin",
+                        width: 150,
+                        renderCell: (params) => {
+                          const dateFin = new Date(params.value);
+                          const today = new Date();
+                          const diffDays = Math.ceil((dateFin.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+                          const isExpired = diffDays < 0;
+                          const isNearExpiry = diffDays >= 0 && diffDays <= 7;
+                          return (
+                            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                              <Typography variant="body2">
+                                {dateFin.toLocaleDateString("fr-FR")}
+                              </Typography>
+                              {isExpired && <Chip label="Dépassé" color="error" size="small" />}
+                              {isNearExpiry && !isExpired && <Chip label={`${diffDays}j restants`} color="warning" size="small" />}
+                            </Box>
+                          );
+                        },
+                      },
+                      {
+                        field: "statut",
+                        headerName: "Statut",
+                        width: 120,
+                        renderCell: (params) => {
+                          const color = params.value === "Actif" ? "success" : params.value === "Dépassé" ? "error" : "default";
+                          return <Chip label={params.value} color={color} size="small" />;
+                        },
+                      },
+                      {
+                        field: "motif",
+                        headerName: "Motif",
+                        flex: 1,
+                        minWidth: 200,
+                      },
+                      {
+                        field: "accorde_par_email",
+                        headerName: "Accordé par",
+                        width: 200,
+                      },
+                    ]}
+                    pageSizeOptions={[5, 10]}
+                    initialState={{ pagination: { paginationModel: { pageSize: 5 } } }}
+                  />
+                </Box>
+              ) : (
+                <Alert severity="info">Aucun moratoire en cours.</Alert>
+              )}
+              {moratoires.some((m) => {
+                const dateFin = new Date(m.date_fin);
+                return dateFin < new Date();
+              }) && (
+                <Alert severity="warning" sx={{ mt: 2 }}>
+                  Certains moratoires sont dépassés. Veuillez régulariser votre situation.
+                </Alert>
+              )}
+            </Box>
+            <Divider sx={{ my: 2 }} />
+          </Box>
+        )}
+
+        {/* Section Mes demandes (USER_STUDENT) */}
+        {activeRole === "USER_STUDENT" && (
+          <Box sx={{ mt: 4 }}>
+            <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
+              <Typography variant="h6">Mes demandes administratives</Typography>
+            </Box>
+            {loadingDemandes ? (
+              <Box sx={{ display: "flex", justifyContent: "center", py: 2 }}>
+                <CircularProgress size={24} />
+              </Box>
+            ) : demandes.length > 0 ? (
+              <Box sx={{ height: 400, width: "100%" }}>
+                <DataGrid
+                  rows={demandes}
+                  columns={[
+                    {
+                      field: "type_demande",
+                      headerName: "Type",
+                      width: 200,
+                      renderCell: (params) => {
+                        const typeLabels: Record<string, string> = {
+                          Releve_notes: "Relevé de notes",
+                          Certificat_scolarite: "Certificat de scolarité",
+                          Attestation_reussite: "Attestation de réussite",
+                          Autre: "Autre",
+                        };
+                        return <Typography variant="body2">{typeLabels[params.value] || params.value}</Typography>;
+                      },
+                    },
+                    {
+                      field: "date_soumission",
+                      headerName: "Date soumission",
+                      width: 180,
+                      valueFormatter: (params) => new Date(params.value).toLocaleDateString("fr-FR"),
+                    },
+                    {
+                      field: "statut",
+                      headerName: "Statut",
+                      width: 150,
+                      renderCell: (params) => {
+                        const color =
+                          params.value === "Approuvée"
+                            ? "success"
+                            : params.value === "Rejetée"
+                              ? "error"
+                              : "warning";
+                        return <Chip label={params.value} color={color} size="small" />;
+                      },
+                    },
+                    {
+                      field: "date_traitement",
+                      headerName: "Date traitement",
+                      width: 180,
+                      valueFormatter: (params) => (params.value ? new Date(params.value).toLocaleDateString("fr-FR") : "—"),
+                    },
+                    {
+                      field: "commentaire",
+                      headerName: "Commentaire",
+                      flex: 1,
+                      minWidth: 200,
+                      valueFormatter: (params) => params.value || "—",
+                    },
+                  ]}
+                  pageSizeOptions={[5, 10]}
+                  initialState={{ pagination: { paginationModel: { pageSize: 5 } } }}
+                />
+              </Box>
+            ) : (
+              <Alert severity="info">Aucune demande soumise.</Alert>
             )}
           </Box>
         )}

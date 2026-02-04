@@ -33,6 +33,7 @@ import { useAuth } from "../context/AuthContext";
 import StudentDetailModal from "../components/StudentDetailModal";
 import StudentEnrollModal from "../components/StudentEnrollModal";
 import StudentStatusModal from "../components/StudentStatusModal";
+import DemandeModal from "../components/DemandeModal";
 
 interface StudentRow {
   id: string;
@@ -78,6 +79,7 @@ const Students: React.FC = () => {
   const [enrollModalOpen, setEnrollModalOpen] = useState(false);
   const [statusModalOpen, setStatusModalOpen] = useState(false);
   const [selectedStudentStatus, setSelectedStudentStatus] = useState<string>("");
+  const [demandeModalOpen, setDemandeModalOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [facultyFilter, setFacultyFilter] = useState<string>("");
   const [moratoireFilter, setMoratoireFilter] = useState<boolean | null>(
@@ -98,84 +100,84 @@ const Students: React.FC = () => {
   const isFinance = activeRole === "OPERATOR_FINANCE";
   const isScolarite = activeRole === "SCOLARITE";
 
-  useEffect(() => {
-    const fetchStudents = async () => {
-      if (!activeRole || !token) {
-        setLoading(false);
-        return;
-      }
+  const fetchStudents = React.useCallback(async () => {
+    if (!activeRole || !token) {
+      setLoading(false);
+      return;
+    }
 
-      setLoading(true);
-      setError(null);
-      try {
-        const response = await axios.get("/api/students/", {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "X-Role-Active": activeRole,
-          },
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await axios.get("/api/students/", {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "X-Role-Active": activeRole,
+        },
+      });
+      const payload = response.data;
+      const results: StudentRow[] = Array.isArray(payload) ? payload : payload.results || [];
+      const data = results.map((item: any) => ({
+        id: String(item.id),
+        identity_uuid: item.identity_uuid || item.identity,
+        identity_nested: item.identity_nested,
+        email: item.email || item.identity_nested?.email || "",
+        matricule_permanent: item.matricule_permanent || item.matricule || "",
+        date_entree: item.date_entree || "",
+        program_code: item.program_code || "",
+        program_name: item.program_name || "",
+        faculty_code: item.faculty_code || "",
+        finance_status: item.finance_status || "OK",
+        finance_status_effective: item.finance_status_effective || item.finance_status,
+        academic_status: item.academic_status || "Actif",
+        balance: Number(item.balance || 0),
+        current_level: item.registrations_admin?.[0]?.level || "",
+        registrations_admin: item.registrations_admin || [],
+        bourses_actives: 0,
+        bourses_actives_data: [],
+      }));
+      
+      // Charger les bourses actives pour chaque étudiant
+      if (!isStudent) {
+        const boursesPromises = data.map(async (student) => {
+          try {
+            const boursesResponse = await axios.get(`/api/students/${student.id}/bourses-actives/`, {
+              headers: {
+                Authorization: `Bearer ${token}`,
+                "X-Role-Active": activeRole,
+              },
+            });
+            const bourses = boursesResponse.data.bourses || [];
+            return {
+              ...student,
+              bourses_actives: bourses.length,
+              bourses_actives_data: bourses.map((b: any) => ({
+                id: b.id,
+                montant: b.montant,
+                statut: b.statut,
+              })),
+            };
+          } catch {
+            return student;
+          }
         });
-        const payload = response.data;
-        const results: StudentRow[] = Array.isArray(payload) ? payload : payload.results || [];
-        const data = results.map((item: any) => ({
-          id: String(item.id),
-          identity_uuid: item.identity_uuid || item.identity,
-          identity_nested: item.identity_nested,
-          email: item.email || item.identity_nested?.email || "",
-          matricule_permanent: item.matricule_permanent || item.matricule || "",
-          date_entree: item.date_entree || "",
-          program_code: item.program_code || "",
-          program_name: item.program_name || "",
-          faculty_code: item.faculty_code || "",
-          finance_status: item.finance_status || "OK",
-          finance_status_effective: item.finance_status_effective || item.finance_status,
-          academic_status: item.academic_status || "Actif",
-          balance: Number(item.balance || 0),
-          current_level: item.registrations_admin?.[0]?.level || "",
-          registrations_admin: item.registrations_admin || [],
-          bourses_actives: 0,
-          bourses_actives_data: [],
-        }));
-        
-        // Charger les bourses actives pour chaque étudiant
-        if (!isStudent) {
-          const boursesPromises = data.map(async (student) => {
-            try {
-              const boursesResponse = await axios.get(`/api/students/${student.id}/bourses-actives/`, {
-                headers: {
-                  Authorization: `Bearer ${token}`,
-                  "X-Role-Active": activeRole,
-                },
-              });
-              const bourses = boursesResponse.data.bourses || [];
-              return {
-                ...student,
-                bourses_actives: bourses.length,
-                bourses_actives_data: bourses.map((b: any) => ({
-                  id: b.id,
-                  montant: b.montant,
-                  statut: b.statut,
-                })),
-              };
-            } catch {
-              return student;
-            }
-          });
-          const studentsWithBourses = await Promise.all(boursesPromises);
-          setRows(studentsWithBourses);
-        } else {
-          setRows(data);
-        }
-      } catch (err: any) {
-        const errorMsg = err.response?.data?.detail || "Impossible de charger les étudiants.";
-        setError(errorMsg);
-        toast.error(errorMsg);
-      } finally {
-        setLoading(false);
+        const studentsWithBourses = await Promise.all(boursesPromises);
+        setRows(studentsWithBourses);
+      } else {
+        setRows(data);
       }
-    };
+    } catch (err: any) {
+      const errorMsg = err.response?.data?.detail || "Impossible de charger les étudiants.";
+      setError(errorMsg);
+      toast.error(errorMsg);
+    } finally {
+      setLoading(false);
+    }
+  }, [activeRole, token, isStudent]);
 
+  useEffect(() => {
     fetchStudents();
-  }, [activeRole, token]);
+  }, [fetchStudents]);
 
   const filteredRows = useMemo(() => {
     let filtered = rows;
@@ -977,6 +979,16 @@ const Students: React.FC = () => {
           setSelectedStudentId(null);
           // Rafraîchir la liste
           window.location.reload();
+        }}
+      />
+      <DemandeModal
+        open={demandeModalOpen}
+        onClose={() => setDemandeModalOpen(false)}
+        onSuccess={() => {
+          // Rafraîchir la liste si nécessaire
+          if (isStudent) {
+            fetchStudents();
+          }
         }}
       />
     </Box>
